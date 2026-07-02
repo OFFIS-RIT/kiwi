@@ -2,18 +2,16 @@ import { and, eq } from "@kiwi/db/drizzle";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { tryDb, tryDbVoid } from "@kiwi/db/effect";
-import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
+import { filesTable, graphTable } from "@kiwi/db/tables/graph";
 import { error as logError } from "@kiwi/logger";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
 import { API_ERROR_CODES, internalServerError, makeApiError } from "@kiwi/contracts/errors";
 import { assertCanManageGraphFiles, selectGraphFields } from "../../lib/graph/access";
+import { assignFilesToProcessRun, deleteProcessRun } from "../../lib/graph/process-run";
 import type { AuthUser } from "../../middleware/auth";
 import { wo } from "../../workflow";
 import { toApiError } from "../_shared/api-effect";
 
-class ProcessRunCreationError extends Schema.TaggedErrorClass<ProcessRunCreationError>()("ProcessRunCreationError", {
-    message: Schema.String,
-}) {}
 
 class ProcessFilesWorkflowEnqueueError extends Schema.TaggedErrorClass<ProcessFilesWorkflowEnqueueError>()(
     "ProcessFilesWorkflowEnqueueError",
@@ -67,19 +65,10 @@ export const retryGraphFile = Effect.fn("retryGraphFile")(
                                     .where(eq(graphTable.id, existingGraph.id))
                                     .returning(selectGraphFields);
 
-                                const [processRun] = yield* tx
-                                    .insert(processRunsTable)
-                                    .values({ graphId: existingGraph.id, status: "pending" })
-                                    .returning({ id: processRunsTable.id });
-                                if (!processRun) {
-                                    return yield* Effect.fail(
-                                        new ProcessRunCreationError({ message: "Failed to create process run" })
-                                    );
-                                }
-
-                                yield* tx
-                                    .insert(processRunFilesTable)
-                                    .values({ processRunId: processRun.id, fileId: file.id });
+                                const processRun = yield* assignFilesToProcessRun(tx, {
+                                    graphId: existingGraph.id,
+                                    fileIds: [file.id],
+                                });
                                 yield* tx
                                     .update(filesTable)
                                     .set({ status: "processing", processStep: "pending", processErrorCode: null })
@@ -131,9 +120,7 @@ export const retryGraphFile = Effect.fn("retryGraphFile")(
                                     tryDbVoid((db) =>
                                         db.transaction((tx) =>
                                             Effect.gen(function* () {
-                                                yield* tx
-                                                    .delete(processRunsTable)
-                                                    .where(eq(processRunsTable.id, retry.runId));
+                                                yield* deleteProcessRun(tx, { processRunId: retry.runId });
                                                 yield* tx
                                                     .update(graphTable)
                                                     .set({ state: existingGraph.state })

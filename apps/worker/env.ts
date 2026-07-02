@@ -14,7 +14,6 @@ export const env = createEnv({
         // DB
         DATABASE_URL: z.string(),
 
-
         // Settings
         AI_TEXT_CONCURRENCY: z.coerce.number().int().positive().default(64),
         AI_IMAGE_CONCURRENCY: z.coerce.number().int().positive().default(64),

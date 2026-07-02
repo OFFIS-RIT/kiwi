@@ -42,6 +42,7 @@ CREATE TABLE "workflow_step_attempts" (
 	"step_name" text NOT NULL,
 	"kind" text NOT NULL,
 	"status" text DEFAULT 'running' NOT NULL,
+	"idempotency_key" text,
 	"config" jsonb DEFAULT '{}' NOT NULL,
 	"context" jsonb,
 	"output" jsonb,
@@ -76,4 +77,15 @@ CREATE INDEX "workflow_step_attempts_signal_wait_idx" ON "workflow_step_attempts
 ALTER TABLE "workflow_signals" ADD CONSTRAINT "workflow_signals_step_attempt_fk" FOREIGN KEY ("namespace_id","step_attempt_id") REFERENCES "workflow_step_attempts"("namespace_id","id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "workflow_signals" ADD CONSTRAINT "workflow_signals_workflow_run_fk" FOREIGN KEY ("namespace_id","workflow_run_id") REFERENCES "workflow_runs"("namespace_id","id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "workflow_step_attempts" ADD CONSTRAINT "workflow_step_attempts_workflow_run_fk" FOREIGN KEY ("namespace_id","workflow_run_id") REFERENCES "workflow_runs"("namespace_id","id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "workflow_step_attempts" ADD CONSTRAINT "workflow_step_attempts_child_workflow_run_fk" FOREIGN KEY ("child_workflow_run_namespace_id","child_workflow_run_id") REFERENCES "workflow_runs"("namespace_id","id") ON DELETE SET NULL;
+ALTER TABLE "workflow_step_attempts" ADD CONSTRAINT "workflow_step_attempts_child_workflow_run_fk" FOREIGN KEY ("child_workflow_run_namespace_id","child_workflow_run_id") REFERENCES "workflow_runs"("namespace_id","id") ON DELETE SET NULL;--> statement-breakpoint
+CREATE TABLE "workflow_signal_sends" (
+	"namespace_id" text DEFAULT 'default',
+	"id" text,
+	"signal" text NOT NULL,
+	"sender_idempotency_key" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "workflow_signal_sends_pkey" PRIMARY KEY("namespace_id","id")
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX "workflow_signal_sends_idempotency_key_unique" ON "workflow_signal_sends" ("namespace_id","signal","sender_idempotency_key");--> statement-breakpoint
+CREATE INDEX "workflow_signal_sends_created_at_idx" ON "workflow_signal_sends" ("namespace_id","created_at");--> statement-breakpoint

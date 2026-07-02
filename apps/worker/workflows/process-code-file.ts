@@ -23,14 +23,6 @@ const FILE_DELETED = "__file_deleted__" as const;
 
 type ProcessFileRow = typeof filesTable.$inferSelect;
 
-function workflowError(error: unknown) {
-    if (error instanceof Error) {
-        return new Error(error.message, { cause: error });
-    }
-
-    return new Error("Workflow failed", { cause: error });
-}
-
 function codeRepositoryFileFromRow(file: ProcessFileRow, content: string): CodeRepositoryFile {
     const metadata = parseCodeFileMetadata(file.metadata);
 
@@ -247,6 +239,6 @@ export const processCodeFile = defineWorkflow(processCodeFileSpec, async ({ inpu
             await runWorkerEffect(updateFileProcessingState(input.fileId, "pending", "processing", null));
         }
 
-        throw workflowError(error);
+        throw error;
     }
 });

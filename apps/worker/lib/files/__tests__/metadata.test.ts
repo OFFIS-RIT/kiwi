@@ -1,7 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
+import { MockLanguageModelV4 } from "ai/test";
 import * as Effect from "effect/Effect";
 
 import { buildMetadata, buildMetadataExcerpt } from "../metadata";
+
+const testLanguageModel = new MockLanguageModelV4();
 
 describe("buildMetadataExcerpt", () => {
     test("returns full text when document is short enough", () => {
@@ -39,7 +42,7 @@ describe("buildMetadata", () => {
 
         await expect(
             Effect.runPromise(
-                buildMetadata({} as never, "Document", "<text>excerpt</text>", {
+                buildMetadata(testLanguageModel, "Document", "<text>excerpt</text>", {
                     generate: generateTextMock as typeof generateTextMock,
                 })
             )

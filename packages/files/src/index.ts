@@ -1,7 +1,9 @@
 import { lookup } from "mime-types";
+import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { v7 as uuid } from "uuid";
 import {
@@ -114,23 +116,39 @@ function tryStorage<T>(operation: string, thunk: () => PromiseLike<T>): Effect.E
     });
 }
 
-let client: S3Client | undefined;
+export type FileStorageConfig = {
+    readonly region: string;
+    readonly endpoint: string;
+    readonly accessKeyId: Redacted.Redacted<string>;
+    readonly secretAccessKey: Redacted.Redacted<string>;
+};
 
-const getClient = () => {
-    client ??= new S3Client({
-        region: process.env.S3_REGION as string,
-        endpoint: process.env.S3_ENDPOINT,
-        forcePathStyle: process.env.S3_ENDPOINT ? true : undefined,
+export const FileStorageConfig: Effect.Effect<FileStorageConfig, Config.ConfigError> = Effect.gen(function* () {
+    const accessKeyId = yield* Config.redacted("S3_ACCESS_KEY_ID").pipe(
+        Config.orElse(() => Config.redacted("S3_ACCESS_KEY"))
+    );
+
+    return {
+        region: yield* Config.string("S3_REGION"),
+        endpoint: yield* Config.string("S3_ENDPOINT"),
+        accessKeyId,
+        secretAccessKey: yield* Config.redacted("S3_SECRET_ACCESS_KEY"),
+    } satisfies FileStorageConfig;
+});
+
+function createS3Client(config: FileStorageConfig): S3Client {
+    return new S3Client({
+        region: config.region,
+        endpoint: config.endpoint,
+        forcePathStyle: config.endpoint ? true : undefined,
         requestChecksumCalculation: "WHEN_REQUIRED",
         responseChecksumValidation: "WHEN_REQUIRED",
         credentials: {
-            accessKeyId: (process.env.S3_ACCESS_KEY_ID ?? process.env.S3_ACCESS_KEY) as string,
-            secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
+            accessKeyId: Redacted.value(config.accessKeyId),
+            secretAccessKey: Redacted.value(config.secretAccessKey),
         },
     });
-
-    return client;
-};
+}
 
 function isS3NotFound(cause: unknown): boolean {
     if (!cause || typeof cause !== "object") {
@@ -147,12 +165,13 @@ function isS3NotFound(cause: unknown): boolean {
 }
 
 async function getObject(
+    client: S3Client,
     key: string,
     bucket: string,
     range?: { start: number; end: number }
 ): Promise<GetObjectCommandOutput | null> {
     try {
-        return await getClient().send(
+        return await client.send(
             new GetObjectCommand({
                 Bucket: bucket,
                 Key: key,
@@ -168,9 +187,9 @@ async function getObject(
     }
 }
 
-async function headObject(key: string, bucket: string): Promise<HeadObjectCommandOutput | null> {
+async function headObject(client: S3Client, key: string, bucket: string): Promise<HeadObjectCommandOutput | null> {
     try {
-        return await getClient().send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+        return await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
     } catch (cause) {
         if (isS3NotFound(cause)) {
             return null;
@@ -273,9 +292,9 @@ export function getGraphFileArtifactPaths(input: { graphId: string; fileId: stri
     };
 }
 
-function writeFile(key: string, file: FileBody, bucket: string): Effect.Effect<StoredFile, StorageError> {
+function writeFile(client: S3Client, key: string, file: FileBody, bucket: string): Effect.Effect<StoredFile, StorageError> {
     return tryStorage("write", async () => {
-        await getClient().send(
+        await client.send(
             new PutObjectCommand({
                 Bucket: bucket,
                 Key: key,
@@ -292,6 +311,7 @@ function writeFile(key: string, file: FileBody, bucket: string): Effect.Effect<S
 }
 
 function putFileImpl(
+    client: S3Client,
     name: string,
     file: FileBody,
     path: string,
@@ -301,54 +321,61 @@ function putFileImpl(
     const key = uuid();
     const filename = extension === "" ? key : `${key}.${extension}`;
 
-    return writeFile(joinPath(path, filename), file, bucket);
+    return writeFile(client, joinPath(path, filename), file, bucket);
 }
 
 function putGraphFileImpl(
+    client: S3Client,
     graphId: string,
     fileId: string,
     name: string,
     file: FileBody,
     bucket: string
 ): Effect.Effect<StoredFile, StorageError> {
-    return writeFile(getGraphFileKey(graphId, fileId, name), file, bucket);
+    return writeFile(client, getGraphFileKey(graphId, fileId, name), file, bucket);
 }
 
 function putNamedFileImpl(
+    client: S3Client,
     name: string,
     file: FileBody,
     path: string,
     bucket: string
 ): Effect.Effect<StoredFile, StorageError> {
-    return writeFile(joinPath(path, name), file, bucket);
+    return writeFile(client, joinPath(path, name), file, bucket);
 }
 
 function getFileImpl(
+    client: S3Client,
     key: string,
     bucket: string
 ): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError>;
 function getFileImpl(
+    client: S3Client,
     key: string,
     bucket: string,
     type: "bytes"
 ): Effect.Effect<{ type: "bytes"; content: ArrayBuffer } | null, StorageError>;
 function getFileImpl(
+    client: S3Client,
     key: string,
     bucket: string,
     type: "text"
 ): Effect.Effect<{ type: "text"; content: string } | null, StorageError>;
 function getFileImpl<T = unknown>(
+    client: S3Client,
     key: string,
     bucket: string,
     type: "json"
 ): Effect.Effect<{ type: "json"; content: T } | null, StorageError>;
 function getFileImpl(
+    client: S3Client,
     key: string,
     bucket: string,
     type: "bytes" | "text" | "json" = "bytes"
 ): Effect.Effect<{ type: "bytes" | "text" | "json"; content: unknown } | null, StorageError> {
     return tryStorage("read", async () => {
-        const response = await getObject(key, bucket);
+        const response = await getObject(client, key, bucket);
         if (!response) {
             return null;
         }
@@ -372,13 +399,14 @@ function getFileImpl(
 }
 
 function getFileStreamImpl(
+    client: S3Client,
     key: string,
     bucket: string,
     range?: { start: number; end: number },
     metadata?: StoredFileMetadata
 ): Effect.Effect<StoredFileStream | null, StorageError> {
     return tryStorage("stream", async () => {
-        const response = await getObject(key, bucket, range);
+        const response = await getObject(client, key, bucket, range);
         if (!response) {
             return null;
         }
@@ -396,12 +424,13 @@ function getFileStreamImpl(
 }
 
 function getFileArrayBufferImpl(
+    client: S3Client,
     key: string,
     bucket: string,
     range?: { start: number; end: number }
 ): Effect.Effect<ArrayBuffer | null, StorageError> {
     return tryStorage("read bytes", async () => {
-        const response = await getObject(key, bucket, range);
+        const response = await getObject(client, key, bucket, range);
         if (!response) {
             return null;
         }
@@ -412,9 +441,13 @@ function getFileArrayBufferImpl(
     });
 }
 
-function getFileMetadataImpl(key: string, bucket: string): Effect.Effect<StoredFileMetadata | null, StorageError> {
+function getFileMetadataImpl(
+    client: S3Client,
+    key: string,
+    bucket: string
+): Effect.Effect<StoredFileMetadata | null, StorageError> {
     return tryStorage("metadata", async () => {
-        const response = await headObject(key, bucket);
+        const response = await headObject(client, key, bucket);
         if (!response) {
             return null;
         }
@@ -427,20 +460,20 @@ function getFileMetadataImpl(key: string, bucket: string): Effect.Effect<StoredF
     });
 }
 
-function deleteFileImpl(key: string, bucket: string): Effect.Effect<boolean, StorageError> {
+function deleteFileImpl(client: S3Client, key: string, bucket: string): Effect.Effect<boolean, StorageError> {
     return tryStorage("delete", async () => {
-        const response = await headObject(key, bucket);
+        const response = await headObject(client, key, bucket);
         if (!response) {
             return false;
         }
 
-        await getClient().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+        await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 
         return true;
     });
 }
 
-function listFilesImpl(path: string, bucket: string): Effect.Effect<string[], StorageError> {
+function listFilesImpl(client: S3Client, path: string, bucket: string): Effect.Effect<string[], StorageError> {
     return tryStorage("list", async () => {
         const trimmedPath = path.replace(/^\/+/u, "").replace(/\/+$/u, "");
         const prefix = trimmedPath === "" ? "" : `${trimmedPath}/`;
@@ -448,7 +481,7 @@ function listFilesImpl(path: string, bucket: string): Effect.Effect<string[], St
         let continuationToken: string | undefined;
 
         while (true) {
-            const response = await getClient().send(
+            const response = await client.send(
                 new ListObjectsV2Command({
                     Bucket: bucket,
                     Prefix: prefix,
@@ -474,35 +507,61 @@ function listFilesImpl(path: string, bucket: string): Effect.Effect<string[], St
 }
 
 function getPresignedDownloadUrlImpl(
+    client: S3Client,
     key: string,
     bucket: string,
     expiresIn = 3600
 ): Effect.Effect<string, StorageError> {
     return tryStorage("presign", async () =>
-        getSignedUrl(getClient(), new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn })
+        getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn })
     );
 }
 
-const readFileImpl = getFileImpl as (
-    key: string,
-    bucket: string,
-    type: "bytes" | "text" | "json"
-) => Effect.Effect<{ type: "bytes" | "text" | "json"; content: unknown } | null, StorageError>;
-const getFileLive: FileStorageGetFile = ((key: string, bucket: string, type: "bytes" | "text" | "json" = "bytes") =>
-    readFileImpl(key, bucket, type)) as FileStorageGetFile;
+function makeFileStorageService(client: S3Client): FileStorageService {
+    const readFileImpl = getFileImpl as (
+        client: S3Client,
+        key: string,
+        bucket: string,
+        type: "bytes" | "text" | "json"
+    ) => Effect.Effect<{ type: "bytes" | "text" | "json"; content: unknown } | null, StorageError>;
+    const getFileLive: FileStorageGetFile = ((
+        key: string,
+        bucket: string,
+        type: "bytes" | "text" | "json" = "bytes"
+    ) => readFileImpl(client, key, bucket, type)) as FileStorageGetFile;
 
-export const FileStorageLive = Layer.succeed(FileStorage, {
-    putFile: Effect.fn("FileStorage.putFile")(putFileImpl),
-    putGraphFile: Effect.fn("FileStorage.putGraphFile")(putGraphFileImpl),
-    putNamedFile: Effect.fn("FileStorage.putNamedFile")(putNamedFileImpl),
-    getFile: getFileLive,
-    getFileStream: Effect.fn("FileStorage.getFileStream")(getFileStreamImpl),
-    getFileArrayBuffer: Effect.fn("FileStorage.getFileArrayBuffer")(getFileArrayBufferImpl),
-    getFileMetadata: Effect.fn("FileStorage.getFileMetadata")(getFileMetadataImpl),
-    deleteFile: Effect.fn("FileStorage.deleteFile")(deleteFileImpl),
-    listFiles: Effect.fn("FileStorage.listFiles")(listFilesImpl),
-    getPresignedDownloadUrl: Effect.fn("FileStorage.getPresignedDownloadUrl")(getPresignedDownloadUrlImpl),
-} satisfies FileStorageService);
+    return {
+        putFile: Effect.fn("FileStorage.putFile")((name, file, path, bucket) =>
+            putFileImpl(client, name, file, path, bucket)
+        ),
+        putGraphFile: Effect.fn("FileStorage.putGraphFile")((graphId, fileId, name, file, bucket) =>
+            putGraphFileImpl(client, graphId, fileId, name, file, bucket)
+        ),
+        putNamedFile: Effect.fn("FileStorage.putNamedFile")((name, file, path, bucket) =>
+            putNamedFileImpl(client, name, file, path, bucket)
+        ),
+        getFile: getFileLive,
+        getFileStream: Effect.fn("FileStorage.getFileStream")((key, bucket, range, metadata) =>
+            getFileStreamImpl(client, key, bucket, range, metadata)
+        ),
+        getFileArrayBuffer: Effect.fn("FileStorage.getFileArrayBuffer")((key, bucket, range) =>
+            getFileArrayBufferImpl(client, key, bucket, range)
+        ),
+        getFileMetadata: Effect.fn("FileStorage.getFileMetadata")((key, bucket) =>
+            getFileMetadataImpl(client, key, bucket)
+        ),
+        deleteFile: Effect.fn("FileStorage.deleteFile")((key, bucket) => deleteFileImpl(client, key, bucket)),
+        listFiles: Effect.fn("FileStorage.listFiles")((path, bucket) => listFilesImpl(client, path, bucket)),
+        getPresignedDownloadUrl: Effect.fn("FileStorage.getPresignedDownloadUrl")((key, bucket, expiresIn) =>
+            getPresignedDownloadUrlImpl(client, key, bucket, expiresIn)
+        ),
+    } satisfies FileStorageService;
+}
+
+export const FileStorageLive = Layer.effect(
+    FileStorage,
+    Effect.map(FileStorageConfig, (config) => makeFileStorageService(createS3Client(config)))
+).pipe(Layer.orDie);
 
 export function putFile(
     name: string,

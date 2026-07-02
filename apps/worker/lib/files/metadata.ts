@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
-import { AI_REQUEST_TIMEOUT, withAiSlot } from "@kiwi/ai/lock";
+import { AI_REQUEST_TIMEOUT, withAiSlotEffect } from "@kiwi/ai/lock";
 import { metadataPrompt } from "@kiwi/ai/prompts/metadata.prompt";
 
 const METADATA_WORD_LIMIT = 250;
@@ -59,16 +59,14 @@ export function buildMetadata(
         }
 
         const generate = deps.generate ?? generateText;
-        const { text } = yield* Effect.tryPromise(() =>
-            withAiSlot("text", (signal) =>
-                generate({
-                    model,
-                    prompt: metadataPrompt(documentName, excerpt),
-                    temperature: 0.1,
-                    timeout: AI_REQUEST_TIMEOUT,
-                    abortSignal: signal,
-                })
-            )
+        const { text } = yield* withAiSlotEffect("text", (signal) =>
+            generate({
+                model,
+                prompt: metadataPrompt(documentName, excerpt),
+                temperature: 0.1,
+                timeout: AI_REQUEST_TIMEOUT,
+                abortSignal: signal,
+            })
         );
 
         return text

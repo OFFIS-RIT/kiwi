@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect";
 import { ulid } from "ulid";
 import {
     computeFailedWorkflowRunUpdate,
-    type DurationString,
     type JsonValue,
     type RetryPolicy,
     type SerializedError,
@@ -102,6 +101,7 @@ export interface CreateStepAttemptParams {
     readonly workerId: string;
     readonly stepName: string;
     readonly kind: StepKind;
+    readonly idempotencyKey?: string | null;
     readonly config: JsonValue;
     readonly context: StepAttemptContext | null;
 }
@@ -166,29 +166,52 @@ export interface AddChildWorkflowRunResult {
     readonly workflowRun: WorkflowRun;
 }
 
+export type StartWorkflowRunParams = Omit<
+    CreateWorkflowRunParams,
+    "parentStepAttemptNamespaceId" | "parentStepAttemptId"
+>;
+
+export type ParkClaimedWorkflowParams = SleepWorkflowRunParams;
+
+export type RecordStepAttemptResultParams =
+    | (CompleteStepAttemptParams & { readonly status: "completed" })
+    | (FailStepAttemptParams & { readonly status: "failed" });
+
+export interface StartChildWorkflowParams<Input = unknown> {
+    readonly parentWorkflowRunId: string;
+    readonly stepName: string;
+    readonly workflowName: string;
+    readonly version: string | null;
+    readonly input: Input;
+    readonly config?: JsonValue;
+    readonly timeoutAt?: Date | null;
+    readonly idempotencyKey?: string;
+    readonly workerId?: string;
+    readonly stepAttemptId?: string;
+}
+
+export type StartChildWorkflowResult = AddChildWorkflowRunResult;
+
 export interface Backend {
-    createWorkflowRun(params: Readonly<CreateWorkflowRunParams>): Promise<WorkflowRun>;
+    startWorkflowRun(params: Readonly<StartWorkflowRunParams>): Promise<WorkflowRun>;
     getWorkflowRun(params: Readonly<GetWorkflowRunParams>): Promise<WorkflowRun | null>;
     listWorkflowRuns(params: Readonly<ListWorkflowRunsParams>): Promise<PaginatedResponse<WorkflowRun>>;
     countWorkflowRuns(): Promise<WorkflowRunCounts>;
-    claimWorkflowRun(params: Readonly<ClaimWorkflowRunParams>): Promise<WorkflowRun | null>;
-    extendWorkflowRunLease(params: Readonly<ExtendWorkflowRunLeaseParams>): Promise<WorkflowRun>;
-    sleepWorkflowRun(params: Readonly<SleepWorkflowRunParams>): Promise<WorkflowRun>;
-    completeWorkflowRun(params: Readonly<CompleteWorkflowRunParams>): Promise<WorkflowRun>;
-    failWorkflowRun(params: Readonly<FailWorkflowRunParams>): Promise<WorkflowRun>;
-    rescheduleWorkflowRunAfterFailedStepAttempt(
+    claimNextRunnableWorkflow(params: Readonly<ClaimWorkflowRunParams>): Promise<WorkflowRun | null>;
+    heartbeatClaim(params: Readonly<ExtendWorkflowRunLeaseParams>): Promise<WorkflowRun>;
+    parkClaimedWorkflow(params: Readonly<ParkClaimedWorkflowParams>): Promise<WorkflowRun>;
+    completeClaimedWorkflow(params: Readonly<CompleteWorkflowRunParams>): Promise<WorkflowRun>;
+    failClaimedWorkflow(params: Readonly<FailWorkflowRunParams>): Promise<WorkflowRun>;
+    rescheduleClaimedWorkflowAfterStepFailure(
         params: Readonly<RescheduleWorkflowRunAfterFailedStepAttemptParams>
     ): Promise<WorkflowRun>;
     cancelWorkflowRun(params: Readonly<CancelWorkflowRunParams>): Promise<WorkflowRun>;
-    createStepAttempt(params: Readonly<CreateStepAttemptParams>): Promise<StepAttempt>;
-    getStepAttempt(params: Readonly<GetStepAttemptParams>): Promise<StepAttempt | null>;
+    startStepAttempt(params: Readonly<CreateStepAttemptParams>): Promise<StepAttempt>;
     listStepAttempts(params: Readonly<ListStepAttemptsParams>): Promise<PaginatedResponse<StepAttempt>>;
-    completeStepAttempt(params: Readonly<CompleteStepAttemptParams>): Promise<StepAttempt>;
-    failStepAttempt(params: Readonly<FailStepAttemptParams>): Promise<StepAttempt>;
-    setStepAttemptChildWorkflowRun(params: Readonly<SetStepAttemptChildWorkflowRunParams>): Promise<StepAttempt>;
-    sendSignal(params: Readonly<SendSignalParams>): Promise<SendSignalResult>;
-    getSignalDelivery(params: Readonly<GetSignalDeliveryParams>): Promise<JsonValue | undefined>;
-    addChildWorkflowRun?<Input>(params: Readonly<AddChildWorkflowRunParams<Input>>): Promise<AddChildWorkflowRunResult>;
+    recordStepAttemptResult(params: Readonly<RecordStepAttemptResultParams>): Promise<StepAttempt>;
+    startChildWorkflow<Input>(params: Readonly<StartChildWorkflowParams<Input>>): Promise<StartChildWorkflowResult>;
+    deliverSignal(params: Readonly<SendSignalParams>): Promise<SendSignalResult>;
+    awaitSignal(params: Readonly<GetSignalDeliveryParams>): Promise<JsonValue | undefined>;
     stop(): Promise<void>;
 }
 
@@ -333,8 +356,12 @@ function mapStepAttempt(row: StepAttemptRow): StepAttempt {
     };
 }
 
-function jsonb(value: unknown | null): SQL {
-    return value === null ? sql`NULL::jsonb` : sql`${JSON.stringify(value)}::jsonb`;
+function jsonb(value: unknown | null | undefined): SQL {
+    if (value === null || value === undefined) {
+        return sql`NULL::jsonb`;
+    }
+    const encoded = JSON.stringify(value);
+    return encoded === undefined ? sql`NULL::jsonb` : sql`${encoded}::jsonb`;
 }
 
 function timestampOrNull(value: Date | null): SQL {
@@ -405,7 +432,86 @@ export class DrizzleWorkflowBackend implements Backend {
 
     async stop(): Promise<void> {}
 
-    async createWorkflowRun(params: Readonly<CreateWorkflowRunParams>): Promise<WorkflowRun> {
+    async startWorkflowRun(params: Readonly<StartWorkflowRunParams>): Promise<WorkflowRun> {
+        return this.createWorkflowRun({
+            ...params,
+            parentStepAttemptNamespaceId: null,
+            parentStepAttemptId: null,
+        });
+    }
+
+    async claimNextRunnableWorkflow(params: Readonly<ClaimWorkflowRunParams>): Promise<WorkflowRun | null> {
+        return this.claimWorkflowRun(params);
+    }
+
+    async heartbeatClaim(params: Readonly<ExtendWorkflowRunLeaseParams>): Promise<WorkflowRun> {
+        return this.extendWorkflowRunLease(params);
+    }
+
+    async parkClaimedWorkflow(params: Readonly<ParkClaimedWorkflowParams>): Promise<WorkflowRun> {
+        return this.sleepWorkflowRun(params);
+    }
+
+    async completeClaimedWorkflow(params: Readonly<CompleteWorkflowRunParams>): Promise<WorkflowRun> {
+        return this.completeWorkflowRun(params);
+    }
+
+    async failClaimedWorkflow(params: Readonly<FailWorkflowRunParams>): Promise<WorkflowRun> {
+        return this.failWorkflowRun(params);
+    }
+
+    async rescheduleClaimedWorkflowAfterStepFailure(
+        params: Readonly<RescheduleWorkflowRunAfterFailedStepAttemptParams>
+    ): Promise<WorkflowRun> {
+        return this.rescheduleWorkflowRunAfterFailedStepAttempt(params);
+    }
+
+    async startStepAttempt(params: Readonly<CreateStepAttemptParams>): Promise<StepAttempt> {
+        return this.createStepAttempt(params);
+    }
+
+    async recordStepAttemptResult(params: Readonly<RecordStepAttemptResultParams>): Promise<StepAttempt> {
+        return params.status === "completed" ? this.completeStepAttempt(params) : this.failStepAttempt(params);
+    }
+
+    async startChildWorkflow<Input>(
+        params: Readonly<StartChildWorkflowParams<Input>>
+    ): Promise<StartChildWorkflowResult> {
+        if (params.stepAttemptId && params.workerId) {
+            const childRun = await this.createWorkflowRun({
+                workflowName: params.workflowName,
+                version: params.version,
+                idempotencyKey: params.idempotencyKey ?? null,
+                config: params.config ?? {},
+                context: null,
+                input: params.input as JsonValue,
+                parentStepAttemptNamespaceId: this.namespaceId,
+                parentStepAttemptId: params.stepAttemptId,
+                availableAt: null,
+                deadlineAt: params.timeoutAt ?? null,
+            });
+            const stepAttempt = await this.setStepAttemptChildWorkflowRun({
+                workflowRunId: params.parentWorkflowRunId,
+                stepAttemptId: params.stepAttemptId,
+                workerId: params.workerId,
+                childWorkflowRunNamespaceId: childRun.namespaceId,
+                childWorkflowRunId: childRun.id,
+            });
+            return { stepAttempt, workflowRun: childRun };
+        }
+
+        return this.addChildWorkflowRun(params);
+    }
+
+    async deliverSignal(params: Readonly<SendSignalParams>): Promise<SendSignalResult> {
+        return this.sendSignal(params);
+    }
+
+    async awaitSignal(params: Readonly<GetSignalDeliveryParams>): Promise<JsonValue | undefined> {
+        return this.getSignalDelivery(params);
+    }
+
+    private async createWorkflowRun(params: Readonly<CreateWorkflowRunParams>): Promise<WorkflowRun> {
         const id = ulid();
         const inserted = await this.runRows<WorkflowRunRow>(sql`
             INSERT INTO workflow_runs (
@@ -474,7 +580,7 @@ export class DrizzleWorkflowBackend implements Backend {
         return toWorkflowRunCounts(data);
     }
 
-    async claimWorkflowRun(params: Readonly<ClaimWorkflowRunParams>): Promise<WorkflowRun | null> {
+    private async claimWorkflowRun(params: Readonly<ClaimWorkflowRunParams>): Promise<WorkflowRun | null> {
         const row = await this.runFirst<WorkflowRunRow>(sql`
             WITH expired AS (
                 UPDATE workflow_runs
@@ -497,14 +603,6 @@ export class DrizzleWorkflowBackend implements Backend {
                   AND wr."status" IN ('pending', 'running', 'sleeping')
                   AND wr."available_at" <= NOW()
                   AND (wr."deadline_at" IS NULL OR wr."deadline_at" > NOW())
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM workflow_step_attempts step
-                      WHERE step."namespace_id" = wr."namespace_id"
-                        AND step."workflow_run_id" = wr."id"
-                        AND step."kind" = 'function'
-                        AND step."status" = 'running'
-                  )
                 ORDER BY CASE WHEN wr."status" = 'pending' THEN 0 ELSE 1 END, wr."available_at", wr."created_at"
                 LIMIT 1
             )
@@ -521,20 +619,12 @@ export class DrizzleWorkflowBackend implements Backend {
               AND wr."status" IN ('pending', 'running', 'sleeping')
               AND wr."available_at" <= NOW()
               AND (wr."deadline_at" IS NULL OR wr."deadline_at" > NOW())
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM workflow_step_attempts step
-                  WHERE step."namespace_id" = wr."namespace_id"
-                    AND step."workflow_run_id" = wr."id"
-                    AND step."kind" = 'function'
-                    AND step."status" = 'running'
-              )
             RETURNING ${workflowRunColumns}
         `);
         return row ? mapWorkflowRun(row) : null;
     }
 
-    async extendWorkflowRunLease(params: Readonly<ExtendWorkflowRunLeaseParams>): Promise<WorkflowRun> {
+    private async extendWorkflowRunLease(params: Readonly<ExtendWorkflowRunLeaseParams>): Promise<WorkflowRun> {
         const row = await this.runFirst<WorkflowRunRow>(sql`
             UPDATE workflow_runs
             SET "available_at" = NOW() + ${params.leaseDurationMs} * INTERVAL '1 millisecond',
@@ -551,7 +641,7 @@ export class DrizzleWorkflowBackend implements Backend {
         return mapWorkflowRun(row);
     }
 
-    async sleepWorkflowRun(params: Readonly<SleepWorkflowRunParams>): Promise<WorkflowRun> {
+    private async sleepWorkflowRun(params: Readonly<SleepWorkflowRunParams>): Promise<WorkflowRun> {
         const row = await this.runFirst<WorkflowRunRow>(sql`
             UPDATE workflow_runs
             SET "status" = 'running',
@@ -571,13 +661,13 @@ export class DrizzleWorkflowBackend implements Backend {
         return reconciled ?? mapWorkflowRun(row);
     }
 
-    async completeWorkflowRun(params: Readonly<CompleteWorkflowRunParams>): Promise<WorkflowRun> {
+    private async completeWorkflowRun(params: Readonly<CompleteWorkflowRunParams>): Promise<WorkflowRun> {
         const row = await this.runFirst<WorkflowRunRow>(sql`
             UPDATE workflow_runs
             SET "status" = 'completed',
                 "output" = ${jsonb(params.output)},
                 "error" = NULL,
-                "worker_id" = ${params.workerId},
+                "worker_id" = NULL,
                 "available_at" = NULL,
                 "finished_at" = NOW(),
                 "updated_at" = NOW()
@@ -592,7 +682,7 @@ export class DrizzleWorkflowBackend implements Backend {
         return workflowRun;
     }
 
-    async failWorkflowRun(params: Readonly<FailWorkflowRunParams>): Promise<WorkflowRun> {
+    private async failWorkflowRun(params: Readonly<FailWorkflowRunParams>): Promise<WorkflowRun> {
         let attempts = params.attempts;
         let deadlineAt = params.deadlineAt;
         if (attempts === undefined || deadlineAt === undefined) {
@@ -604,7 +694,13 @@ export class DrizzleWorkflowBackend implements Backend {
             deadlineAt = workflowRun.deadlineAt;
         }
 
-        const failureUpdate = computeFailedWorkflowRunUpdate(params.retryPolicy, attempts, deadlineAt, params.error, new Date());
+        const failureUpdate = computeFailedWorkflowRunUpdate(
+            params.retryPolicy,
+            attempts,
+            deadlineAt,
+            params.error,
+            new Date()
+        );
         const row = await this.runFirst<WorkflowRunRow>(sql`
             UPDATE workflow_runs
             SET "status" = ${failureUpdate.status},
@@ -627,7 +723,7 @@ export class DrizzleWorkflowBackend implements Backend {
         return workflowRun;
     }
 
-    async rescheduleWorkflowRunAfterFailedStepAttempt(
+    private async rescheduleWorkflowRunAfterFailedStepAttempt(
         params: Readonly<RescheduleWorkflowRunAfterFailedStepAttemptParams>
     ): Promise<WorkflowRun> {
         const row = await this.runFirst<WorkflowRunRow>(sql`
@@ -679,15 +775,15 @@ export class DrizzleWorkflowBackend implements Backend {
         return workflowRun;
     }
 
-    async createStepAttempt(params: Readonly<CreateStepAttemptParams>): Promise<StepAttempt> {
+    private async createStepAttempt(params: Readonly<CreateStepAttemptParams>): Promise<StepAttempt> {
         const id = ulid();
         const row = await this.runFirst<StepAttemptRow>(sql`
             INSERT INTO workflow_step_attempts (
-                "namespace_id", "id", "workflow_run_id", "step_name", "kind", "status", "config", "context",
+                "namespace_id", "id", "workflow_run_id", "step_name", "kind", "status", "idempotency_key", "config", "context",
                 "started_at", "created_at", "updated_at"
             )
             SELECT ${this.namespaceId}, ${id}, ${params.workflowRunId}, ${params.stepName}, ${params.kind}, 'running',
-                   ${jsonb(params.config)}, ${jsonb(params.context)}, NOW(), date_trunc('milliseconds', NOW()), NOW()
+                   ${params.idempotencyKey ?? null}, ${jsonb(params.config)}, ${jsonb(params.context)}, NOW(), date_trunc('milliseconds', NOW()), NOW()
             FROM workflow_runs wr
             WHERE wr."namespace_id" = ${this.namespaceId}
               AND wr."id" = ${params.workflowRunId}
@@ -701,7 +797,7 @@ export class DrizzleWorkflowBackend implements Backend {
         return mapStepAttempt(row);
     }
 
-    async getStepAttempt(params: Readonly<GetStepAttemptParams>): Promise<StepAttempt | null> {
+    private async getStepAttempt(params: Readonly<GetStepAttemptParams>): Promise<StepAttempt | null> {
         const row = await this.runFirst<StepAttemptRow>(sql`
             SELECT ${stepAttemptColumns}
             FROM workflow_step_attempts
@@ -725,7 +821,7 @@ export class DrizzleWorkflowBackend implements Backend {
         return { data: data.map(mapStepAttempt), pagination: { next: null, prev: null } };
     }
 
-    async completeStepAttempt(params: Readonly<CompleteStepAttemptParams>): Promise<StepAttempt> {
+    private async completeStepAttempt(params: Readonly<CompleteStepAttemptParams>): Promise<StepAttempt> {
         const row = await this.runFirst<StepAttemptRow>(sql`
             UPDATE workflow_step_attempts sa
             SET "status" = 'completed',
@@ -743,7 +839,7 @@ export class DrizzleWorkflowBackend implements Backend {
         return mapStepAttempt(row);
     }
 
-    async failStepAttempt(params: Readonly<FailStepAttemptParams>): Promise<StepAttempt> {
+    private async failStepAttempt(params: Readonly<FailStepAttemptParams>): Promise<StepAttempt> {
         const row = await this.runFirst<StepAttemptRow>(sql`
             UPDATE workflow_step_attempts sa
             SET "status" = 'failed',
@@ -761,7 +857,7 @@ export class DrizzleWorkflowBackend implements Backend {
         return mapStepAttempt(row);
     }
 
-    async setStepAttemptChildWorkflowRun(params: Readonly<SetStepAttemptChildWorkflowRunParams>): Promise<StepAttempt> {
+    private async setStepAttemptChildWorkflowRun(params: Readonly<SetStepAttemptChildWorkflowRunParams>): Promise<StepAttempt> {
         const row = await this.runFirst<StepAttemptRow>(sql`
             UPDATE workflow_step_attempts sa
             SET "child_workflow_run_namespace_id" = ${params.childWorkflowRunNamespaceId},
@@ -777,29 +873,57 @@ export class DrizzleWorkflowBackend implements Backend {
         return mapStepAttempt(row);
     }
 
-    async sendSignal(params: Readonly<SendSignalParams>): Promise<SendSignalResult> {
-        const existing =
-            params.idempotencyKey === null
-                ? []
-                : await this.runRows<{ workflowRunId: string }>(sql`
-                      SELECT DISTINCT "workflow_run_id" AS "workflowRunId"
-                      FROM workflow_signals
-                      WHERE "namespace_id" = ${this.namespaceId}
-                        AND "signal" = ${params.signal}
-                        AND "sender_idempotency_key" = ${params.idempotencyKey}
-                  `);
-        if (existing.length > 0) {
-            return { workflowRunIds: existing.map((row) => row.workflowRunId) };
+    private async sendSignal(params: Readonly<SendSignalParams>): Promise<SendSignalResult> {
+        if (params.idempotencyKey === null) {
+            const delivered = await this.runRows<{ workflowRunId: string }>(sql`
+                WITH waiters AS (
+                    SELECT "id", "workflow_run_id"
+                    FROM workflow_step_attempts
+                    WHERE "namespace_id" = ${this.namespaceId}
+                      AND "kind" = 'signal-wait'
+                      AND "status" = 'running'
+                      AND "context"->>'signal' = ${params.signal}
+                ), inserted AS (
+                    INSERT INTO workflow_signals (
+                        "namespace_id", "id", "signal", "data", "sender_idempotency_key", "workflow_run_id", "step_attempt_id", "created_at"
+                    )
+                    SELECT ${this.namespaceId}, gen_random_uuid()::text, ${params.signal}, ${jsonb(params.data)}, NULL,
+                           waiters."workflow_run_id", waiters."id", NOW()
+                    FROM waiters
+                    ON CONFLICT ("namespace_id", "step_attempt_id") DO NOTHING
+                    RETURNING "workflow_run_id"
+                ), wake AS (
+                    UPDATE workflow_runs wr
+                    SET "available_at" = CASE WHEN wr."available_at" IS NULL OR wr."available_at" > NOW() THEN NOW() ELSE wr."available_at" END,
+                        "updated_at" = NOW()
+                    WHERE wr."namespace_id" = ${this.namespaceId}
+                      AND wr."id" IN (SELECT "workflow_run_id" FROM inserted)
+                      AND wr."status" IN ('pending', 'running', 'sleeping')
+                      AND wr."worker_id" IS NULL
+                    RETURNING wr."id"
+                )
+                SELECT DISTINCT "workflow_run_id" AS "workflowRunId"
+                FROM inserted
+            `);
+            return { workflowRunIds: delivered.map((row) => row.workflowRunId) };
         }
 
         const delivered = await this.runRows<{ workflowRunId: string }>(sql`
-            WITH waiters AS (
+            WITH send_insert AS (
+                INSERT INTO workflow_signal_sends (
+                    "namespace_id", "id", "signal", "sender_idempotency_key", "created_at"
+                )
+                VALUES (${this.namespaceId}, gen_random_uuid()::text, ${params.signal}, ${params.idempotencyKey}, NOW())
+                ON CONFLICT ("namespace_id", "signal", "sender_idempotency_key") DO NOTHING
+                RETURNING "id"
+            ), waiters AS (
                 SELECT "id", "workflow_run_id"
                 FROM workflow_step_attempts
                 WHERE "namespace_id" = ${this.namespaceId}
                   AND "kind" = 'signal-wait'
                   AND "status" = 'running'
                   AND "context"->>'signal' = ${params.signal}
+                  AND EXISTS (SELECT 1 FROM send_insert)
             ), inserted AS (
                 INSERT INTO workflow_signals (
                     "namespace_id", "id", "signal", "data", "sender_idempotency_key", "workflow_run_id", "step_attempt_id", "created_at"
@@ -818,14 +942,23 @@ export class DrizzleWorkflowBackend implements Backend {
                   AND wr."status" IN ('pending', 'running', 'sleeping')
                   AND wr."worker_id" IS NULL
                 RETURNING wr."id"
+            ), delivered AS (
+                SELECT "workflow_run_id"
+                FROM inserted
+                UNION
+                SELECT "workflow_run_id"
+                FROM workflow_signals
+                WHERE "namespace_id" = ${this.namespaceId}
+                  AND "signal" = ${params.signal}
+                  AND "sender_idempotency_key" = ${params.idempotencyKey}
             )
             SELECT DISTINCT "workflow_run_id" AS "workflowRunId"
-            FROM inserted
+            FROM delivered
         `);
         return { workflowRunIds: delivered.map((row) => row.workflowRunId) };
     }
 
-    async getSignalDelivery(params: Readonly<GetSignalDeliveryParams>): Promise<JsonValue | undefined> {
+    private async getSignalDelivery(params: Readonly<GetSignalDeliveryParams>): Promise<JsonValue | undefined> {
         const row = await this.runFirst<{ data: JsonValue | null }>(sql`
             SELECT "data"
             FROM workflow_signals
@@ -836,13 +969,17 @@ export class DrizzleWorkflowBackend implements Backend {
         return row ? (row.data ?? null) : undefined;
     }
 
-    async addChildWorkflowRun<Input>(params: Readonly<AddChildWorkflowRunParams<Input>>): Promise<AddChildWorkflowRunResult> {
+    private async addChildWorkflowRun<Input>(
+        params: Readonly<AddChildWorkflowRunParams<Input>>
+    ): Promise<AddChildWorkflowRunResult> {
         const stepAttemptId = ulid();
         const childWorkflowRunId = ulid();
-        const idempotencyKey = params.idempotencyKey ?? `__external_child:${this.namespaceId}:${params.parentWorkflowRunId}:${params.stepName}`;
+        const idempotencyKey =
+            params.idempotencyKey ??
+            `__external_child:${this.namespaceId}:${params.parentWorkflowRunId}:${params.stepName}`;
         const baseConfig =
             params.config && typeof params.config === "object" && !Array.isArray(params.config) ? params.config : {};
-        const stepConfig = { ...baseConfig, external: true } as JsonValue;
+        const stepConfig = { ...baseConfig, external: true, idempotencyKey } as JsonValue;
         const rows = await this.runRows<
             StepAttemptRow & {
                 childNamespaceId: string;
@@ -875,17 +1012,39 @@ export class DrizzleWorkflowBackend implements Backend {
                   AND "id" = ${params.parentWorkflowRunId}
                   AND "status" IN ('pending', 'running', 'sleeping')
                 LIMIT 1
-            ), attempt AS (
+            ), existing_child AS (
+                SELECT wr.*
+                FROM workflow_runs wr
+                JOIN parent ON TRUE
+                WHERE wr."namespace_id" = ${this.namespaceId}
+                  AND wr."workflow_name" = ${params.workflowName}
+                  AND wr."idempotency_key" = ${idempotencyKey}
+                LIMIT 1
+            ), existing_attempt AS (
+                SELECT sa.*
+                FROM workflow_step_attempts sa
+                JOIN existing_child child
+                  ON child."parent_step_attempt_namespace_id" = sa."namespace_id"
+                 AND child."parent_step_attempt_id" = sa."id"
+                LIMIT 1
+            ), attempt_insert AS (
                 INSERT INTO workflow_step_attempts (
-                    "namespace_id", "id", "workflow_run_id", "step_name", "kind", "status", "config", "context",
+                    "namespace_id", "id", "workflow_run_id", "step_name", "kind", "status", "idempotency_key", "config", "context",
                     "started_at", "created_at", "updated_at"
                 )
                 SELECT ${this.namespaceId}, ${stepAttemptId}, parent."id", ${params.stepName}, 'workflow', 'running',
-                       ${jsonb(stepConfig)}, ${jsonb({ kind: "workflow", timeoutAt: params.timeoutAt?.toISOString() ?? null })},
+                       ${idempotencyKey}, ${jsonb(stepConfig)}, ${jsonb({ kind: "workflow", timeoutAt: params.timeoutAt?.toISOString() ?? null })},
                        NOW(), date_trunc('milliseconds', NOW()), NOW()
                 FROM parent
-                ON CONFLICT DO NOTHING
+                WHERE NOT EXISTS (SELECT 1 FROM existing_attempt)
                 RETURNING *
+            ), attempt AS (
+                SELECT *
+                FROM existing_attempt
+                UNION ALL
+                SELECT *
+                FROM attempt_insert
+                LIMIT 1
             ), child_insert AS (
                 INSERT INTO workflow_runs (
                     "namespace_id", "id", "workflow_name", "version", "status", "idempotency_key", "config", "context", "input",
@@ -895,12 +1054,17 @@ export class DrizzleWorkflowBackend implements Backend {
                        '{}'::jsonb, NULL::jsonb, ${jsonb(params.input as JsonValue)}, 0,
                        ${this.namespaceId}, attempt."id", NOW(), date_trunc('milliseconds', NOW()), NOW()
                 FROM attempt
+                WHERE NOT EXISTS (SELECT 1 FROM existing_child)
                 ON CONFLICT ("namespace_id", "workflow_name", "idempotency_key")
                     WHERE "idempotency_key" IS NOT NULL
                 DO NOTHING
                 RETURNING *
             ), child AS (
-                SELECT * FROM child_insert
+                SELECT *
+                FROM existing_child
+                UNION ALL
+                SELECT *
+                FROM child_insert
                 UNION ALL
                 SELECT wr.*
                 FROM workflow_runs wr
@@ -913,9 +1077,9 @@ export class DrizzleWorkflowBackend implements Backend {
                 SET "child_workflow_run_namespace_id" = ${this.namespaceId},
                     "child_workflow_run_id" = child."id",
                     "updated_at" = NOW()
-                FROM child
+                FROM attempt, child
                 WHERE sa."namespace_id" = ${this.namespaceId}
-                  AND sa."id" = ${stepAttemptId}
+                  AND sa."id" = attempt."id"
                 RETURNING sa.*
             ), wake AS (
                 UPDATE workflow_runs wr
@@ -998,7 +1162,10 @@ export class DrizzleWorkflowBackend implements Backend {
         };
     }
 
-    private async findWorkflowRunByIdempotencyKey(workflowName: string, idempotencyKey: string): Promise<WorkflowRun | null> {
+    private async findWorkflowRunByIdempotencyKey(
+        workflowName: string,
+        idempotencyKey: string
+    ): Promise<WorkflowRun | null> {
         const row = await this.runFirst<WorkflowRunRow>(sql`
             SELECT ${workflowRunColumns}
             FROM workflow_runs
@@ -1051,16 +1218,12 @@ export class DrizzleWorkflowBackend implements Backend {
     }
 
     private async wakeParentWorkflowRun(childWorkflowRun: Readonly<WorkflowRun>): Promise<void> {
-        if (!childWorkflowRun.parentStepAttemptNamespaceId || !childWorkflowRun.parentStepAttemptId) {
-            return;
-        }
         await this.runRows<{ id: string }>(sql`
             UPDATE workflow_runs wr
             SET "available_at" = CASE WHEN wr."available_at" IS NULL OR wr."available_at" > NOW() THEN NOW() ELSE wr."available_at" END,
                 "updated_at" = NOW()
             FROM workflow_step_attempts sa
-            WHERE sa."namespace_id" = ${childWorkflowRun.parentStepAttemptNamespaceId}
-              AND sa."id" = ${childWorkflowRun.parentStepAttemptId}
+            WHERE sa."namespace_id" = ${this.namespaceId}
               AND sa."kind" = 'workflow'
               AND sa."status" = 'running'
               AND sa."child_workflow_run_namespace_id" = ${childWorkflowRun.namespaceId}
@@ -1097,19 +1260,11 @@ export class DrizzleWorkflowBackend implements Backend {
     }
 
     private async runRows<T>(query: SQL): Promise<T[]> {
-        return runDatabaseEffect(
-            tryDb((db) =>
-                Effect.map(db.execute(query), (result) => rows<T>(result))
-            )
-        );
+        return runDatabaseEffect(tryDb((db) => Effect.map(db.execute(query), (result) => rows<T>(result))));
     }
 
     private async runFirst<T>(query: SQL): Promise<T | null> {
-        return runDatabaseEffect(
-            tryDb((db) =>
-                Effect.map(db.execute(query), (result) => maybeFirst<T>(result))
-            )
-        );
+        return runDatabaseEffect(tryDb((db) => Effect.map(db.execute(query), (result) => maybeFirst<T>(result))));
     }
 }
 

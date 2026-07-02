@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ulid } from "ulid";
 import { tryDb, tryDbVoid, type Database } from "@kiwi/db/effect";
-import { filesTable, graphTable, processRunFilesTable, processRunsTable } from "@kiwi/db/tables/graph";
+import { filesTable, graphTable } from "@kiwi/db/tables/graph";
 import { putGraphFile, type FileStorage } from "@kiwi/files";
 import { error as logError } from "@kiwi/logger";
 import { processFilesSpec } from "@kiwi/worker/process-files-spec";
@@ -25,6 +25,7 @@ import {
     uniqueFilesByChecksum,
     type UploadedFile,
 } from "../../lib/graph/route";
+import { assignFilesToProcessRun } from "../../lib/graph/process-run";
 import type { AuthUser } from "../../middleware/auth";
 import { wo } from "../../workflow";
 import { toApiError } from "../_shared/api-effect";
@@ -34,11 +35,6 @@ import {
     unsupportedUploadError,
     type NewGraphOwner,
 } from "./upload-helpers";
-
-class ProcessRunCreationError extends Schema.TaggedErrorClass<ProcessRunCreationError>()("ProcessRunCreationError", {
-    message: Schema.String,
-}) {}
-
 class ProcessFilesWorkflowEnqueueError extends Schema.TaggedErrorClass<ProcessFilesWorkflowEnqueueError>()(
     "ProcessFilesWorkflowEnqueueError",
     {
@@ -241,24 +237,12 @@ export const createGraph = Effect.fn("createGraph")(
 
                 return yield* Effect.matchEffect(
                     Effect.gen(function* () {
-                        const [processRun] = yield* tryDb((db) =>
-                            db
-                                .insert(processRunsTable)
-                                .values({ graphId: graph.id, status: "pending" })
-                                .returning({ id: processRunsTable.id })
-                        );
-                        if (!processRun) {
-                            return yield* Effect.fail(
-                                new ProcessRunCreationError({ message: "Failed to create process run" })
-                            );
-                        }
-
-                        yield* tryDbVoid((db) =>
-                            db.insert(processRunFilesTable).values(
-                                createdFiles.map((file) => ({
-                                    processRunId: processRun.id,
-                                    fileId: file.id,
-                                }))
+                        const processRun = yield* tryDb((db) =>
+                            db.transaction((tx) =>
+                                assignFilesToProcessRun(tx, {
+                                    graphId: graph.id,
+                                    fileIds: createdFiles.map((file) => file.id),
+                                })
                             )
                         );
 

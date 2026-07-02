@@ -42,14 +42,27 @@ export class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()("@ki
 
 export type DatabaseTransaction = Parameters<Parameters<EffectDatabase["transaction"]>[0]>[0];
 
-type DatabaseEffectResult<T, E> = Effect.Effect<T, E, never>;
+type DatabaseEffectResult<T> = Effect.Effect<T, unknown, never>;
 
-export function tryDb<T, E>(
-    thunk: (db: EffectDatabase) => DatabaseEffectResult<T, E>
-): Effect.Effect<T, DatabaseError, Database>;
+export function provideDb<T, E, R>(
+    work: (db: EffectDatabase) => Effect.Effect<T, E, R>
+): Effect.Effect<T, E, R | Database> {
+    return Effect.gen(function* () {
+        const db = yield* Database;
+        return yield* work(db);
+    });
+}
+
+export function provideDbVoid<E, R>(
+    work: (db: EffectDatabase) => Effect.Effect<unknown, E, R>
+): Effect.Effect<void, E, R | Database> {
+    return Effect.asVoid(provideDb(work));
+}
+
+export function tryDb<T>(thunk: (db: EffectDatabase) => DatabaseEffectResult<T>): Effect.Effect<T, DatabaseError, Database>;
 export function tryDb<T>(thunk: (db: EffectDatabase) => PromiseLike<T>): Effect.Effect<T, DatabaseError, Database>;
-export function tryDb<T, E>(
-    thunk: (db: EffectDatabase) => DatabaseEffectResult<T, E> | PromiseLike<T>
+export function tryDb<T>(
+    thunk: (db: EffectDatabase) => DatabaseEffectResult<T> | PromiseLike<T>
 ): Effect.Effect<T, DatabaseError, Database> {
     return Effect.gen(function* () {
         const db = yield* Database;
@@ -65,14 +78,14 @@ export function tryDb<T, E>(
     });
 }
 
-export function tryDbVoid<E>(
-    thunk: (db: EffectDatabase) => DatabaseEffectResult<unknown, E>
+export function tryDbVoid(
+    thunk: (db: EffectDatabase) => DatabaseEffectResult<unknown>
 ): Effect.Effect<void, DatabaseError, Database>;
 export function tryDbVoid(
     thunk: (db: EffectDatabase) => PromiseLike<unknown>
 ): Effect.Effect<void, DatabaseError, Database>;
-export function tryDbVoid<E>(
-    thunk: (db: EffectDatabase) => DatabaseEffectResult<unknown, E> | PromiseLike<unknown>
+export function tryDbVoid(
+    thunk: (db: EffectDatabase) => DatabaseEffectResult<unknown> | PromiseLike<unknown>
 ): Effect.Effect<void, DatabaseError, Database> {
     return Effect.gen(function* () {
         const db = yield* Database;

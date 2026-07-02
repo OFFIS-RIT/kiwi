@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { AiClientFactoryLive } from "@kiwi/ai";
-import { makeAiModelRegistryLayer } from "@kiwi/ai/models";
+import { AiClientFactory } from "@kiwi/ai";
+import { AiModelRegistry } from "@kiwi/ai/models";
 import { API_ERROR_CODES } from "@kiwi/contracts/responses";
-import { Database, type EffectDatabase } from "@kiwi/db/effect";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import {
+    makeTestAiClientFactoryLayer,
+    makeTestAiModelRegistryLayer,
+    makeTestDatabaseLayer,
+    runTestEffect,
+} from "../../test-support/effect";
 
 let queuedSelectRows: unknown[][] = [];
 const selectMock = mock(() => ({
@@ -15,16 +20,16 @@ const selectMock = mock(() => ({
     }),
 }));
 
-const TestDatabaseLayer = Layer.succeed(Database, {
+const TestDatabaseLayer = makeTestDatabaseLayer({
     select: selectMock,
-} as unknown as EffectDatabase);
+});
 const TestWorkerLayer = Layer.mergeAll(
-    makeAiModelRegistryLayer("test-auth-secret").pipe(Layer.provide(TestDatabaseLayer)),
-    AiClientFactoryLive
+    makeTestAiModelRegistryLayer("test-auth-secret", TestDatabaseLayer),
+    makeTestAiClientFactoryLayer()
 );
 
-const runWorkerTestEffect = <T, E, R>(effect: Effect.Effect<T, E, R>) =>
-    Effect.runPromise(Effect.provide(effect, TestWorkerLayer) as Effect.Effect<T, E, never>);
+const runWorkerTestEffect = <T, E>(effect: Effect.Effect<T, E, AiModelRegistry | AiClientFactory>) =>
+    runTestEffect(effect, TestWorkerLayer);
 
 const { createWorkerClient } = await import("../client");
 

@@ -1,3 +1,6 @@
+import * as Effect from "effect/Effect";
+import { info as logInfo, warn as logWarn } from "@kiwi/logger";
+import { initLogger, shutdownLogger } from "./logger";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 const WATCH_PARENT_PROCESS = process.env.KIWI_WORKER_WATCH_PARENT === "1";
@@ -5,6 +8,8 @@ const WATCH_PARENT_PROCESS = process.env.KIWI_WORKER_WATCH_PARENT === "1";
 await startWorkerProcess();
 
 async function startWorkerProcess() {
+    initLogger();
+
     const [
         { wo },
         { deleteProjectFile },
@@ -45,20 +50,21 @@ async function startWorkerProcess() {
         }
 
         shuttingDown = true;
-        console.log(`Shutting down worker (${signal})...`);
+        logInfo("shutting down worker", { signal });
 
         const timeout = setTimeout(() => {
-            console.warn("Worker shutdown timed out");
-            process.exit(exitCode);
+            logWarn("worker shutdown timed out", { signal });
+            void Effect.runPromise(shutdownLogger()).finally(() => process.exit(exitCode));
         }, SHUTDOWN_TIMEOUT_MS);
 
         try {
             await worker.stop();
         } finally {
             clearTimeout(timeout);
+            await Effect.runPromise(shutdownLogger());
         }
 
-        console.log("Worker stopped");
+        logInfo("worker stopped", { signal });
         process.exit(exitCode);
     }
 
@@ -86,5 +92,5 @@ async function startWorkerProcess() {
     }
 
     await worker.start();
-    console.log("Worker started.");
+    logInfo("worker started");
 }

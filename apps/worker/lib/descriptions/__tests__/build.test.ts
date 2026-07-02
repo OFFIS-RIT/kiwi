@@ -1,7 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
+import { MockLanguageModelV4 } from "ai/test";
 import * as Effect from "effect/Effect";
 
 import { buildDescription, chunkDescriptionSources } from "../build";
+
+const testLanguageModel = new MockLanguageModelV4();
 
 describe("chunkDescriptionSources", () => {
     test("merges a small tail chunk into the previous chunk", () => {
@@ -36,7 +39,7 @@ describe("buildDescription", () => {
 
         const description = await Effect.runPromise(
             buildDescription(
-                {} as never,
+                testLanguageModel,
                 "Entity",
                 Array.from({ length: 625 }, (_, index) => `source-${index}`),
                 undefined,
@@ -60,7 +63,7 @@ describe("buildDescription", () => {
 
         const description = await Effect.runPromise(
             buildDescription(
-                {} as never,
+                testLanguageModel,
                 "Entity",
                 Array.from({ length: 305 }, (_, index) => `source-${index}`),
                 "existing description",

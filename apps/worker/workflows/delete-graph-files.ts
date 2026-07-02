@@ -10,14 +10,6 @@ import { runWorkerEffect } from "../lib/runtime/effect";
 
 const NO_RETRY = { maximumAttempts: 1 } as const;
 
-function workflowError(error: unknown) {
-    if (error instanceof Error) {
-        return new Error(error.message, { cause: error });
-    }
-
-    return new Error("Workflow failed", { cause: error });
-}
-
 function finalizeProjectStatus(graphId: string): Effect.Effect<void, unknown, Database> {
     return withWorkerDbVoid((db) =>
         db.transaction((tx) =>
@@ -80,6 +72,6 @@ export const deleteGraphFiles = defineWorkflow(deleteGraphFilesSpec, async ({ in
             );
         }
 
-        throw workflowError(error);
+        throw error;
     }
 });

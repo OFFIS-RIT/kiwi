@@ -1,4 +1,8 @@
-import type { WORKFLOW_RUN_STATUS_VALUES, STEP_ATTEMPT_STATUS_VALUES, STEP_KIND_VALUES } from "@kiwi/db/tables/workflow";
+import type {
+    WORKFLOW_RUN_STATUS_VALUES,
+    STEP_ATTEMPT_STATUS_VALUES,
+    STEP_KIND_VALUES,
+} from "@kiwi/db/tables/workflow";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | { readonly [key: string]: JsonValue | undefined } | readonly JsonValue[];
@@ -62,7 +66,9 @@ const DURATION_MULTIPLIERS = {
 
 const DURATION_REGEX = /^(-?\.?\d+(?:\.\d+)?)\s*([a-z]+)?$/i;
 
-type ParseDurationResult = { readonly ok: true; readonly value: number } | { readonly ok: false; readonly error: Error };
+type ParseDurationResult =
+    | { readonly ok: true; readonly value: number }
+    | { readonly ok: false; readonly error: Error };
 
 function isDurationUnit(value: string): value is DurationUnit {
     return value in DURATION_MULTIPLIERS;
@@ -102,67 +108,139 @@ export function computeBackoffDelayMs(policy: BackoffPolicy, attempt: number): n
 }
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
-    readonly "~standard": StandardSchemaV1.Props<Input, Output>;
+    readonly "~standard": StandardSchemaV1Props<Input, Output>;
 }
 
-export declare namespace StandardSchemaV1 {
-    export interface Props<Input = unknown, Output = Input> {
-        readonly version: 1;
-        readonly vendor: string;
-        readonly validate: (value: unknown) => Result<Output> | Promise<Result<Output>>;
-        readonly types?: Types<Input, Output> | undefined;
-    }
-
-    export type Result<Output> = SuccessResult<Output> | FailureResult;
-
-    export interface SuccessResult<Output> {
-        readonly value: Output;
-        readonly issues?: undefined;
-    }
-
-    export interface FailureResult {
-        readonly issues: readonly Issue[];
-    }
-
-    export interface Issue {
-        readonly message: string;
-        readonly path?: readonly (PropertyKey | PathSegment)[] | undefined;
-    }
-
-    export interface PathSegment {
-        readonly key: PropertyKey;
-    }
-
-    export interface Types<Input = unknown, Output = Input> {
-        readonly input: Input;
-        readonly output: Output;
-    }
-
-    export type InferInput<Schema extends StandardSchemaV1> = NonNullable<Schema["~standard"]["types"]>["input"];
-    export type InferOutput<Schema extends StandardSchemaV1> = NonNullable<Schema["~standard"]["types"]>["output"];
-
-    export {};
+export interface StandardSchemaV1Props<Input = unknown, Output = Input> {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly validate: (value: unknown) => StandardSchemaV1Result<Output> | Promise<StandardSchemaV1Result<Output>>;
+    readonly types?: StandardSchemaV1Types<Input, Output> | undefined;
 }
+
+export type StandardSchemaV1Result<Output> = StandardSchemaV1SuccessResult<Output> | StandardSchemaV1FailureResult;
+
+export interface StandardSchemaV1SuccessResult<Output> {
+    readonly value: Output;
+    readonly issues?: undefined;
+}
+
+export interface StandardSchemaV1FailureResult {
+    readonly issues: readonly StandardSchemaV1Issue[];
+}
+
+export interface StandardSchemaV1Issue {
+    readonly message: string;
+    readonly path?: readonly (PropertyKey | StandardSchemaV1PathSegment)[] | undefined;
+}
+
+export interface StandardSchemaV1PathSegment {
+    readonly key: PropertyKey;
+}
+
+export interface StandardSchemaV1Types<Input = unknown, Output = Input> {
+    readonly input: Input;
+    readonly output: Output;
+}
+
+export type StandardSchemaV1InferInput<Schema extends StandardSchemaV1> = NonNullable<
+    Schema["~standard"]["types"]
+>["input"];
+export type StandardSchemaV1InferOutput<Schema extends StandardSchemaV1> = NonNullable<
+    Schema["~standard"]["types"]
+>["output"];
 
 export interface SerializedError {
     readonly name?: string;
     readonly message: string;
     readonly stack?: string;
+    readonly cause?: SerializedError;
     readonly [key: string]: JsonValue | undefined;
 }
 
+export interface WorkflowLogger {
+    readonly error: (message: string, fields?: Record<string, unknown>) => void;
+}
+
 export function serializeError(error: unknown): SerializedError {
+    return serializeErrorWithCauses(error, new WeakSet<object>());
+}
+
+function isPlainObject(value: object): value is Record<string, unknown> {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+}
+
+function toJsonSafeValue(value: unknown, seen: WeakSet<object>, depth = 0): JsonValue | undefined {
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return value;
+    }
+
+    if (value === undefined || typeof value === "function" || typeof value === "symbol" || typeof value === "bigint") {
+        return undefined;
+    }
+
+    if (typeof value !== "object" || seen.has(value) || depth >= 4) {
+        return undefined;
+    }
+
+    seen.add(value);
+    if (Array.isArray(value)) {
+        return value.map((item) => toJsonSafeValue(item, seen, depth + 1) ?? null);
+    }
+
+    if (!isPlainObject(value)) {
+        return undefined;
+    }
+
+    const entries = Object.entries(value)
+        .map(([key, entryValue]) => [key, toJsonSafeValue(entryValue, seen, depth + 1)] as const)
+        .filter((entry): entry is readonly [string, JsonValue] => entry[1] !== undefined);
+
+    return Object.fromEntries(entries);
+}
+
+function jsonSafeErrorFields(error: Error, seen: WeakSet<object>): Record<string, JsonValue> {
+    const fields: Record<string, JsonValue> = {};
+    for (const [key, value] of Object.entries(error)) {
+        if (key === "name" || key === "message" || key === "stack" || key === "cause") {
+            continue;
+        }
+
+        const serialized = toJsonSafeValue(value, seen);
+        if (serialized !== undefined) {
+            fields[key] = serialized;
+        }
+    }
+    return fields;
+}
+
+function serializeErrorWithCauses(error: unknown, seen: WeakSet<object>): SerializedError {
+    if (error && typeof error === "object") {
+        if (seen.has(error)) {
+            return { message: "[Circular error cause]" };
+        }
+        seen.add(error);
+    }
+
     if (error instanceof Error) {
-        return error.stack
-            ? { name: error.name, message: error.message, stack: error.stack }
-            : { name: error.name, message: error.message };
+        const serialized = {
+            ...(error.stack
+                ? { name: error.name, message: error.message, stack: error.stack }
+                : { name: error.name, message: error.message }),
+            ...jsonSafeErrorFields(error, seen),
+        };
+        return "cause" in error && error.cause !== undefined
+            ? { ...serialized, cause: serializeErrorWithCauses(error.cause, seen) }
+            : serialized;
     }
 
     return { message: String(error) };
 }
 
 export function deserializeError(serialized: Readonly<SerializedError>): Error {
-    const error = new Error(serialized.message);
+    const cause = serialized.cause ? deserializeError(serialized.cause) : undefined;
+    const error = cause ? new Error(serialized.message, { cause }) : new Error(serialized.message);
     if (serialized.name) {
         error.name = serialized.name;
     }
@@ -295,7 +373,12 @@ export interface StepApi {
         workflowRunIds: string[];
     }>;
     readonly waitForSignal: <Output>(
-        options: Readonly<{ name?: string; signal: string; timeout?: StepWaitTimeout; schema?: StandardSchemaV1<unknown, Output> }>
+        options: Readonly<{
+            name?: string;
+            signal: string;
+            timeout?: StepWaitTimeout;
+            schema?: StandardSchemaV1<unknown, Output>;
+        }>
     ) => Promise<{ data: Output } | null>;
 }
 
@@ -317,7 +400,9 @@ export interface WorkflowFunctionParams<Input> {
     readonly run: WorkflowRunMetadata;
 }
 
-export type WorkflowFunction<Input, Output> = (params: Readonly<WorkflowFunctionParams<Input>>) => Promise<Output> | Output;
+export type WorkflowFunction<Input, Output> = (
+    params: Readonly<WorkflowFunctionParams<Input>>
+) => Promise<Output> | Output;
 
 export interface Workflow<Input, Output, RawInput = Input> {
     readonly spec: WorkflowSpec<Input, Output, RawInput>;
@@ -337,7 +422,9 @@ export function isWorkflow(value: unknown): value is Workflow<unknown, unknown, 
     }
     const candidate = value as Record<string, unknown>;
     const spec = candidate.spec as Record<string, unknown> | undefined;
-    return typeof spec === "object" && spec !== null && typeof spec.name === "string" && typeof candidate.fn === "function";
+    return (
+        typeof spec === "object" && spec !== null && typeof spec.name === "string" && typeof candidate.fn === "function"
+    );
 }
 
 export interface FailedWorkflowRunUpdate {
@@ -406,10 +493,16 @@ function resolveDuration(value: DurationString, fallback: DurationString): Durat
     return parsed.ok && parsed.value > 0 ? value : fallback;
 }
 
-export type SchemaInput<TSchema, Fallback> = TSchema extends StandardSchemaV1 ? StandardSchemaV1.InferInput<TSchema> : Fallback;
-export type SchemaOutput<TSchema, Fallback> = TSchema extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<TSchema> : Fallback;
+export type SchemaInput<TSchema, Fallback> = TSchema extends StandardSchemaV1
+    ? StandardSchemaV1InferInput<TSchema>
+    : Fallback;
+export type SchemaOutput<TSchema, Fallback> = TSchema extends StandardSchemaV1
+    ? StandardSchemaV1InferOutput<TSchema>
+    : Fallback;
 
-export type ValidationResult<T> = { readonly success: true; readonly value: T } | { readonly success: false; readonly error: string };
+export type ValidationResult<T> =
+    | { readonly success: true; readonly value: T }
+    | { readonly success: false; readonly error: string };
 
 export async function validateInput<RunInput, Input>(
     schema: StandardSchemaV1<RunInput, Input> | null | undefined,
@@ -421,7 +514,8 @@ export async function validateInput<RunInput, Input>(
 
     const result = await Promise.resolve(schema["~standard"].validate(input));
     if (result.issues) {
-        const messages = result.issues.length > 0 ? result.issues.map((issue) => issue.message).join("; ") : "Validation failed";
+        const messages =
+            result.issues.length > 0 ? result.issues.map((issue) => issue.message).join("; ") : "Validation failed";
         return { success: false, error: messages };
     }
 

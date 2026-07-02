@@ -12,7 +12,7 @@ type WorkflowRunIdRow = {
 type CancellationContext = {
     graphIds: string[];
     fileIds?: string[];
-    workflowNames?: string[];
+    workflowNames?: readonly string[];
 };
 
 export type WorkflowCancellationSummary = {
@@ -32,6 +32,7 @@ class WorkflowCancellationError extends Schema.TaggedErrorClass<WorkflowCancella
 const WORKFLOW_NAMESPACE_ID = "default";
 const ACTIVE_WORKFLOW_STATUSES = ["pending", "running", "sleeping"] as const;
 const MAX_CANCELLATION_PASSES = 5;
+export const FILE_PROCESSING_WORKFLOW_NAMES = ["process-file", "process-code-file"] as const;
 
 function textList(values: readonly string[]) {
     return sql.join(
@@ -224,6 +225,6 @@ export const cancelActiveFileProcessingWorkflowRuns: (
     return cancelActiveWorkflowRuns({
         graphIds: [graphId],
         fileIds,
-        workflowNames: ["process-file"],
+        workflowNames: [...FILE_PROCESSING_WORKFLOW_NAMES],
     });
 });

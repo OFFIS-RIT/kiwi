@@ -1,4 +1,6 @@
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import type { LogFields, LoggerError, LoggerInstance } from "./types";
 
 export { createConsoleLogger } from "./console";
@@ -108,6 +110,10 @@ export class Logger {
         return shutdownLoggerInstances(this.instances);
     }
 }
+
+export class LoggerService extends Context.Service<LoggerService, Logger>()("@kiwi/logger/Logger") {}
+
+export const LoggerLive = Layer.sync(LoggerService, () => singleton ?? new Logger([]));
 
 let singleton: Logger | undefined;
 

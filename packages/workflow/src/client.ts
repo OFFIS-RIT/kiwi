@@ -8,6 +8,7 @@ import type {
     StandardSchemaV1,
     Workflow,
     WorkflowFunction,
+    WorkflowLogger,
     WorkflowSpec,
     WorkflowRun,
 } from "./core";
@@ -21,6 +22,7 @@ type WorkflowRunInput<TSchema, Input> = SchemaInput<TSchema, Input>;
 
 export interface WorkflowClientOptions {
     readonly backend: Backend;
+    readonly logger?: WorkflowLogger;
 }
 
 export interface WorkflowRunOptions {
@@ -42,14 +44,16 @@ export interface WorkflowHandleOptions {
 
 export class WorkflowClient {
     private readonly backend: Backend;
+    private readonly logger: WorkflowLogger | undefined;
     private readonly registry = new WorkflowRegistry();
 
     constructor(options: WorkflowClientOptions) {
         this.backend = options.backend;
+        this.logger = options.logger;
     }
 
     newWorker(): Worker {
-        return new Worker({ backend: this.backend, workflows: this.registry.getAll() });
+        return new Worker({ backend: this.backend, workflows: this.registry.getAll(), logger: this.logger });
     }
 
     implementWorkflow<Input, Output, RunInput = Input>(
@@ -69,15 +73,13 @@ export class WorkflowClient {
             throw new Error(validationResult.error);
         }
 
-        const workflowRun = await this.backend.createWorkflowRun({
+        const workflowRun = await this.backend.startWorkflowRun({
             workflowName: spec.name,
             version: spec.version ?? null,
             idempotencyKey: options?.idempotencyKey ?? null,
             config: {},
             context: null,
             input: (validationResult.value ?? null) as JsonValue,
-            parentStepAttemptNamespaceId: null,
-            parentStepAttemptId: null,
             availableAt: resolveAvailableAt(options?.availableAt),
             deadlineAt: options?.deadlineAt ?? null,
         });
@@ -103,8 +105,10 @@ export class WorkflowClient {
         await this.backend.cancelWorkflowRun({ workflowRunId });
     }
 
-    async sendSignal(options: Readonly<{ signal: string; data?: JsonValue; idempotencyKey?: string }>): Promise<SendSignalResult> {
-        return this.backend.sendSignal({
+    async sendSignal(
+        options: Readonly<{ signal: string; data?: JsonValue; idempotencyKey?: string }>
+    ): Promise<SendSignalResult> {
+        return this.backend.deliverSignal({
             signal: options.signal,
             data: options.data ?? null,
             idempotencyKey: options.idempotencyKey ?? null,
@@ -117,19 +121,16 @@ export class WorkflowClient {
         spec: WorkflowSpec<Input, Output, RunInput>,
         input?: RunInput
     ): Promise<WorkflowRunHandle<Output>> {
-        if (!this.backend.addChildWorkflowRun) {
-            throw new Error("Workflow backend does not support adding child workflow runs");
-        }
         const validationResult = await validateInput(spec.schema, input);
         if (!validationResult.success) {
             throw new Error(validationResult.error);
         }
-        const result = await this.backend.addChildWorkflowRun({
+        const result = await this.backend.startChildWorkflow({
             parentWorkflowRunId,
             stepName,
             workflowName: spec.name,
             version: spec.version ?? null,
-            input: validationResult.value,
+            input: (validationResult.value ?? null) as JsonValue,
         });
         return new WorkflowRunHandle({
             backend: this.backend,

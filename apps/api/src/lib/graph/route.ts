@@ -23,6 +23,7 @@ import { WorkerEta, type WorkerEtaAverage, type WorkerEtaFileState, type WorkerE
 import { findActiveDeleteGraphFilesProgress, findProcessDescriptionProgress } from "../workflow-progress";
 import type { GraphFileType } from "../graph-file-type";
 import type { FileWithChecksum } from "./upload-file-type";
+import { assignFilesToProcessRun, deleteProcessRun } from "./process-run";
 
 function tryUnknownPromise<T>(thunk: () => PromiseLike<T>): Effect.Effect<T, unknown> {
     return Effect.tryPromise({ try: thunk, catch: (error) => error });
@@ -239,7 +240,7 @@ export const restoreGraphFileChangeFailure = (
                 db.transaction((tx) =>
                     Effect.gen(function* () {
                         if (processRunId) {
-                            yield* tx.delete(processRunsTable).where(eq(processRunsTable.id, processRunId));
+                            yield* deleteProcessRun(tx, { processRunId });
                         }
 
                         if (addedFileIds.length > 0) {
@@ -363,28 +364,11 @@ export function commitGraphFileUploads(options: {
                         .where(eq(graphTable.id, options.graph.id))
                         .returning(selectGraphFields);
 
-                    const processRun =
-                        options.processRunId !== undefined
-                            ? { id: options.processRunId }
-                            : (
-                                  yield* tx
-                                      .insert(processRunsTable)
-                                      .values({
-                                          graphId: options.graph.id,
-                                          status: "pending",
-                                      })
-                                      .returning({ id: processRunsTable.id })
-                              )[0];
-                    if (!processRun) {
-                        return yield* Effect.fail(new Error("Failed to create process run"));
-                    }
-
-                    yield* tx.insert(processRunFilesTable).values(
-                        insertedFiles.map((file) => ({
-                            processRunId: processRun.id,
-                            fileId: file.id,
-                        }))
-                    );
+                    const processRun = yield* assignFilesToProcessRun(tx, {
+                        graphId: options.graph.id,
+                        fileIds: insertedFiles.map((file) => file.id),
+                        processRunId: options.processRunId,
+                    });
 
                     return {
                         graph: updatedGraph ?? options.graph,

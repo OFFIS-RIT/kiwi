@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
-import { AI_REQUEST_TIMEOUT, withAiSlot } from "@kiwi/ai/lock";
+import { AI_REQUEST_TIMEOUT, withAiSlotEffect } from "@kiwi/ai/lock";
 import { descriptionPromp, updateDescriptionPromp } from "@kiwi/ai/prompts/description.prompt";
 
 const DESCRIPTION_SOURCE_CHUNK_SIZE = 300;
@@ -57,10 +57,8 @@ export function buildDescription(
                 ? updateDescriptionPromp(name, sourceChunk, nextDescription)
                 : descriptionPromp(name, sourceChunk);
 
-            const { text } = yield* Effect.tryPromise(() =>
-                withAiSlot("text", (signal) =>
-                    generate({ model, prompt, temperature: 0.1, timeout: AI_REQUEST_TIMEOUT, abortSignal: signal })
-                )
+            const { text } = yield* withAiSlotEffect("text", (signal) =>
+                generate({ model, prompt, temperature: 0.1, timeout: AI_REQUEST_TIMEOUT, abortSignal: signal })
             );
             nextDescription = text
                 .replace(/[\r\n]+/g, " ")

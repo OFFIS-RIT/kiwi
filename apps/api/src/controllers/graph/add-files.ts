@@ -212,7 +212,11 @@ export const addGraphFiles = Effect.fn("addGraphFiles")((input: { user: AuthUser
                                 }),
                         });
 
-                        return { graph: result.graph, addedFiles: result.addedFiles, workflowRunId: activeProcessFilesRun.id };
+                        return {
+                            graph: result.graph,
+                            addedFiles: result.addedFiles,
+                            workflowRunId: activeProcessFilesRun.id,
+                        };
                     }
 
                     const handle = yield* Effect.tryPromise({

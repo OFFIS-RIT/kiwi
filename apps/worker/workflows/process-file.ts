@@ -45,14 +45,6 @@ const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
 const PROCESS_UNIT_BATCH_SIZE = 100;
 
-function workflowError(error: unknown) {
-    if (error instanceof Error) {
-        return new Error(error.message, { cause: error });
-    }
-
-    return new Error("Workflow failed", { cause: error });
-}
-
 export const processFiles = defineWorkflow(processFilesSpec, async ({ input, step, run }) => {
     try {
         await step.run({ name: "mark-files-pending" }, async () =>
@@ -293,7 +285,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             );
         }
 
-        throw workflowError(error);
+        throw error;
     }
 });
 
@@ -675,6 +667,6 @@ export const processFile = defineWorkflow(processFileSpec, async ({ input, step,
             await runWorkerEffect(updateFileProcessingState(input.fileId, "pending", "processing", null));
         }
 
-        throw workflowError(error);
+        throw error;
     }
 });

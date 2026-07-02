@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Backend } from "./backend";
 import { computeBackoffDelayMs, resolveRetryPolicy } from "./core";
-import type { RetryPolicy, Workflow, WorkflowRun } from "./core";
+import type { RetryPolicy, Workflow, WorkflowLogger, WorkflowRun } from "./core";
 import { executeWorkflow } from "./execution";
 
 const DEFAULT_LEASE_DURATION_MS = 30_000;
@@ -21,6 +21,7 @@ const MISSING_DEFINITION_RETRY_POLICY: RetryPolicy = {
 export interface WorkerOptions {
     readonly backend: Backend;
     readonly workflows: Workflow<unknown, unknown, unknown>[];
+    readonly logger?: WorkflowLogger;
 }
 
 class WorkflowRegistry {
@@ -49,8 +50,22 @@ function registryKey(name: string, version: string | null): string {
     return version ? `${name}@${version}` : name;
 }
 
+function reportWorkerError(logger: WorkflowLogger | undefined, message: string, fields: Record<string, unknown>): void {
+    if (!logger) {
+        console.error(message, fields.error ?? fields);
+        return;
+    }
+
+    try {
+        logger.error(message, fields);
+    } catch (loggerError) {
+        console.error("Workflow logger failed:", loggerError);
+    }
+}
+
 export class Worker {
     private readonly backend: Backend;
+    private readonly logger: WorkflowLogger | undefined;
     private readonly workerId = randomUUID();
     private readonly registry = new WorkflowRegistry();
     private activeExecution: WorkflowExecution | null = null;
@@ -60,6 +75,7 @@ export class Worker {
 
     constructor(options: WorkerOptions) {
         this.backend = options.backend;
+        this.logger = options.logger;
         for (const workflow of options.workflows) {
             this.registry.register(workflow);
         }
@@ -89,7 +105,7 @@ export class Worker {
         if (this.activeExecution) {
             return 0;
         }
-        const workflowRun = await this.backend.claimWorkflowRun({
+        const workflowRun = await this.backend.claimNextRunnableWorkflow({
             workerId: this.workerId,
             leaseDurationMs: DEFAULT_LEASE_DURATION_MS,
         });
@@ -99,22 +115,41 @@ export class Worker {
 
         const workflow = this.registry.get(workflowRun.workflowName, workflowRun.version);
         if (!workflow) {
-            await this.backend.failWorkflowRun({
+            const error = { message: `Workflow "${workflowRun.workflowName}" is not registered` };
+            await this.backend.failClaimedWorkflow({
                 workflowRunId: workflowRun.id,
                 workerId: this.workerId,
-                error: { message: `Workflow "${workflowRun.workflowName}" is not registered` },
+                error,
                 retryPolicy: MISSING_DEFINITION_RETRY_POLICY,
                 attempts: workflowRun.attempts,
                 deadlineAt: workflowRun.deadlineAt,
             });
+            reportWorkerError(this.logger, "workflow run failed because its definition is missing", {
+                workflowRunId: workflowRun.id,
+                workflowName: workflowRun.workflowName,
+                workflowVersion: workflowRun.version,
+                workerId: this.workerId,
+                serializedError: error,
+            });
             return 0;
         }
 
-        const execution = new WorkflowExecution({ backend: this.backend, workerId: this.workerId, workflowRun });
+        const execution = new WorkflowExecution({
+            backend: this.backend,
+            workerId: this.workerId,
+            workflowRun,
+            logger: this.logger,
+        });
         this.activeExecution = execution;
         this.processExecution(execution, workflow)
             .catch((error: unknown) => {
-                console.error(`Critical error during workflow execution for run ${workflowRun.id}:`, error);
+                reportWorkerError(this.logger, "critical error during workflow execution", {
+                    workflowRunId: workflowRun.id,
+                    workflowName: workflowRun.workflowName,
+                    workflowVersion: workflowRun.version,
+                    workerId: this.workerId,
+                    error,
+                });
             })
             .finally(() => {
                 execution.stopHeartbeat();
@@ -136,7 +171,7 @@ export class Worker {
                     await sleep(getPollBackoffDelayMs(this.backoffAttempts));
                 }
             } catch (error) {
-                console.error("Worker tick failed:", error);
+                reportWorkerError(this.logger, "worker tick failed", { workerId: this.workerId, error });
                 this.backoffAttempts += 1;
                 await sleep(getPollBackoffDelayMs(this.backoffAttempts));
             }
@@ -155,6 +190,7 @@ export class Worker {
             workflowVersion: execution.workflowRun.version,
             workerId: execution.workerId,
             retryPolicy: resolveRetryPolicy(workflow.spec.retryPolicy),
+            logger: this.logger,
         });
     }
 }
@@ -166,10 +202,15 @@ class WorkflowExecution {
     private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     private stopped = false;
 
-    constructor(options: Readonly<{ backend: Backend; workflowRun: WorkflowRun; workerId: string }>) {
+    private readonly logger: WorkflowLogger | undefined;
+
+    constructor(
+        options: Readonly<{ backend: Backend; workflowRun: WorkflowRun; workerId: string; logger?: WorkflowLogger }>
+    ) {
         this.backend = options.backend;
         this.workflowRun = options.workflowRun;
         this.workerId = options.workerId;
+        this.logger = options.logger;
     }
 
     startHeartbeat(): void {
@@ -180,7 +221,7 @@ class WorkflowExecution {
                 return;
             }
             this.backend
-                .extendWorkflowRunLease({
+                .heartbeatClaim({
                     workflowRunId: this.workflowRun.id,
                     workerId: this.workerId,
                     leaseDurationMs: DEFAULT_LEASE_DURATION_MS,
@@ -190,7 +231,13 @@ class WorkflowExecution {
                         this.stopHeartbeat();
                         return;
                     }
-                    console.error("Heartbeat failed:", error);
+                    reportWorkerError(this.logger, "workflow heartbeat failed", {
+                        workflowRunId: this.workflowRun.id,
+                        workflowName: this.workflowRun.workflowName,
+                        workflowVersion: this.workflowRun.version,
+                        workerId: this.workerId,
+                        error,
+                    });
                 });
         }, heartbeatIntervalMs);
     }

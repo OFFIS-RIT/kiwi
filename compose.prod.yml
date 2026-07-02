@@ -210,7 +210,6 @@ services:
             postgres:
                 condition: service_healthy
 
-
     bouncer:
         container_name: bouncer
         image: edoburu/pgbouncer:latest

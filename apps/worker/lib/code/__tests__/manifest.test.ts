@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
-
-const runWorkerTestEffect = <T, E>(effect: Effect.Effect<T, E, unknown>) =>
-    Effect.runPromise(effect as Effect.Effect<T, E, never>);
+import * as Layer from "effect/Layer";
+import { makeTestDatabaseLayer, makeTestFileStorageLayer, runTestEffect } from "../../test-support/effect";
 
 type MockFileRow = {
     id: string;
@@ -91,21 +90,23 @@ const mockDb = {
     }),
 };
 
-mock.module("@kiwi/db/effect", () => ({
-    tryDb: (work: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) => {
-        const result = work(mockDb);
-        return Effect.isEffect(result) ? result : Effect.promise(async () => await result);
-    },
-    Database: Effect.succeed(mockDb),
-    DatabaseError: class DatabaseError extends Error {
-        override readonly cause: unknown;
-        constructor(options: { cause: unknown }) {
-            super("DatabaseError");
-            this.cause = options.cause;
-        }
-    },
-    DatabaseLayer: {},
-}));
+const TestManifestLayer = Layer.mergeAll(
+    makeTestDatabaseLayer(mockDb),
+    makeTestFileStorageLayer({
+        getFile: (key: string, _bucket: string, _type: "text") => {
+            const content = fileContents[key];
+            return Effect.succeed(content ? { type: "text" as const, content } : null);
+        },
+        putNamedFile: (_name: string, content: unknown) =>
+            Effect.sync(() => {
+                uploadedManifest = JSON.parse(String(content));
+                return { key: "manifest-key", type: "application/json" };
+            }),
+    })
+);
+const runWorkerTestEffect = <T, E>(effect: Effect.Effect<T, E, Layer.Layer.Success<typeof TestManifestLayer>>) =>
+    runTestEffect(effect, TestManifestLayer);
+
 
 mock.module("../../runtime/effect", () => ({
     withWorkerDb: (work: (db: typeof mockDb) => Effect.Effect<unknown> | PromiseLike<unknown> | unknown) => {
@@ -119,17 +120,6 @@ mock.module("../../runtime/effect", () => ({
     runWorkerEffect: <T, E>(effect: Effect.Effect<T, E>) => Effect.runPromise(effect),
 }));
 
-mock.module("@kiwi/files", () => ({
-    getFile: (key: string) => {
-        const content = fileContents[key];
-        return Effect.succeed(content ? { type: "text", content } : null);
-    },
-    putNamedFile: (_name: string, content: string) =>
-        Effect.sync(() => {
-            uploadedManifest = JSON.parse(content);
-            return { key: "manifest-key", type: "application/json" };
-        }),
-}));
 
 mock.module("../../../env", () => ({
     env: { S3_BUCKET: "test-bucket" },

@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+    foreignKey,
+    index,
+    integer,
+    jsonb,
+    pgTable,
+    primaryKey,
+    text,
+    timestamp,
+    uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 export const WORKFLOW_NAMESPACE_ID = "default";
 
@@ -29,7 +39,10 @@ export const workflowRunsTable = pgTable(
         version: text("version"),
         status: text("status", { enum: WORKFLOW_RUN_STATUS_VALUES }).notNull().default("pending"),
         idempotencyKey: text("idempotency_key"),
-        config: jsonb("config").$type<unknown>().notNull().default(sql`'{}'::jsonb`),
+        config: jsonb("config")
+            .$type<unknown>()
+            .notNull()
+            .default(sql`'{}'::jsonb`),
         context: jsonb("context").$type<unknown | null>(),
         input: jsonb("input").$type<unknown | null>(),
         output: jsonb("output").$type<unknown | null>(),
@@ -88,7 +101,11 @@ export const workflowStepAttemptsTable = pgTable(
         stepName: text("step_name").notNull(),
         kind: text("kind", { enum: STEP_KIND_VALUES }).notNull(),
         status: text("status", { enum: STEP_ATTEMPT_STATUS_VALUES }).notNull().default("running"),
-        config: jsonb("config").$type<unknown>().notNull().default(sql`'{}'::jsonb`),
+        idempotencyKey: text("idempotency_key"),
+        config: jsonb("config")
+            .$type<unknown>()
+            .notNull()
+            .default(sql`'{}'::jsonb`),
         context: jsonb("context").$type<unknown | null>(),
         output: jsonb("output").$type<unknown | null>(),
         error: jsonb("error").$type<unknown | null>(),
@@ -114,7 +131,11 @@ export const workflowStepAttemptsTable = pgTable(
             columns: [table.childWorkflowRunNamespaceId, table.childWorkflowRunId],
             foreignColumns: [workflowRunsTable.namespaceId, workflowRunsTable.id],
         }).onDelete("set null"),
-        index("workflow_step_attempts_workflow_run_created_at_idx").on(table.namespaceId, table.workflowRunId, table.createdAt),
+        index("workflow_step_attempts_workflow_run_created_at_idx").on(
+            table.namespaceId,
+            table.workflowRunId,
+            table.createdAt
+        ),
         index("workflow_step_attempts_workflow_run_step_name_created_at_idx").on(
             table.namespaceId,
             table.workflowRunId,
@@ -158,5 +179,25 @@ export const workflowSignalsTable = pgTable(
             columns: [table.namespaceId, table.workflowRunId],
             foreignColumns: [workflowRunsTable.namespaceId, workflowRunsTable.id],
         }).onDelete("cascade"),
+    ]
+);
+
+export const workflowSignalSendsTable = pgTable(
+    "workflow_signal_sends",
+    {
+        namespaceId: text("namespace_id").notNull().default(WORKFLOW_NAMESPACE_ID),
+        id: text("id").notNull(),
+        signal: text("signal").notNull(),
+        senderIdempotencyKey: text("sender_idempotency_key").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    },
+    (table) => [
+        primaryKey({ name: "workflow_signal_sends_pkey", columns: [table.namespaceId, table.id] }),
+        uniqueIndex("workflow_signal_sends_idempotency_key_unique").on(
+            table.namespaceId,
+            table.signal,
+            table.senderIdempotencyKey
+        ),
+        index("workflow_signal_sends_created_at_idx").on(table.namespaceId, table.createdAt),
     ]
 );

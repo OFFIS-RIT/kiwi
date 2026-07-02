@@ -11,6 +11,12 @@ const workflowInputs: Array<{
     processRunId: string;
     code?: { kind: "repository"; retiredFileIds?: string[] };
 }> = [];
+const childWorkflowRuns: Array<{
+    parentWorkflowRunId: string;
+    stepName: string;
+    specName: string;
+    input: unknown;
+}> = [];
 const loadedUrls: string[] = [];
 const insertedFileValues: Array<{
     name: string;
@@ -24,6 +30,8 @@ const insertedFileValues: Array<{
     checksum?: string;
 }> = [];
 const existingChecksumRows: Array<{ checksum: string }> = [];
+const processRunFileValues: Array<{ processRunId: string; fileId: string }> = [];
+const activeProcessFilesWorkflowRows: Array<{ id: string; processRunId: string }> = [];
 const retryFileRows: Array<{
     id: string;
     type: string;
@@ -143,6 +151,7 @@ function runTransactionResult<T>(result: T | PromiseLike<T> | Effect.Effect<T>) 
 }
 
 const db = {
+    execute: () => Effect.succeed([...activeProcessFilesWorkflowRows]),
     insert: () => ({
         values: (values: unknown) => ({
             returning: () => insertReturning(values),
@@ -165,6 +174,10 @@ const transactionDb = {
                     values.every((value) => typeof value === "object" && value !== null && "fileId" in value)) ||
                 (typeof values === "object" && values !== null && "fileId" in values)
             ) {
+                processRunFileValues.push(...(Array.isArray(values) ? values : [values]) as Array<{
+                    processRunId: string;
+                    fileId: string;
+                }>);
                 return Effect.succeed(undefined);
             }
 
@@ -253,11 +266,28 @@ mock.module("../../workflow", () => ({
             workflowInputs.push(input);
             return { workflowRun: { id: "workflow-1" } };
         },
+        addChildWorkflowRun: async (
+            parentWorkflowRunId: string,
+            stepName: string,
+            spec: { name: string },
+            input: unknown
+        ) => {
+            childWorkflowRuns.push({ parentWorkflowRunId, stepName, specName: spec.name, input });
+            return { workflowRun: { id: `child-workflow-${childWorkflowRuns.length}` } };
+        },
     },
 }));
 
 mock.module("@kiwi/worker/process-files-spec", () => ({
     processFilesSpec: { name: "process-files" },
+}));
+
+mock.module("@kiwi/worker/process-file-spec", () => ({
+    processFileSpec: { name: "process-file" },
+}));
+
+mock.module("@kiwi/worker/process-code-file-spec", () => ({
+    processCodeFileSpec: { name: "process-code-file" },
 }));
 
 mock.module("@kiwi/worker/delete-graph-files-spec", () => ({
@@ -446,9 +476,12 @@ describe("graph route archive uploads", () => {
     beforeEach(() => {
         uploadedFiles.length = 0;
         workflowInputs.length = 0;
+        childWorkflowRuns.length = 0;
         loadedUrls.length = 0;
         insertedFileValues.length = 0;
         existingChecksumRows.length = 0;
+        processRunFileValues.length = 0;
+        activeProcessFilesWorkflowRows.length = 0;
         supersededFileIds.length = 0;
         retryFileRows.length = 0;
         archiveExpansionMode = "success";
@@ -521,6 +554,64 @@ describe("graph route archive uploads", () => {
                 processRunId: "process-run-1",
             },
         ]);
+    });
+
+    test("adds normal uploads to an active process-files workflow as process-file children", async () => {
+        activeProcessFilesWorkflowRows.push({ id: "workflow-active-1", processRunId: "process-run-active" });
+        const form = new FormData();
+        form.append("files", new File(["hello"], "notes.txt", { type: "text/plain" }));
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/files", {
+                method: "POST",
+                body: form,
+            })
+        );
+        const body = await response.json();
+        const addedFileId = body.data.addedFiles[0].id;
+
+        expect(response.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(body.data.workflowRunId).toBe("workflow-active-1");
+        expect(workflowInputs).toEqual([]);
+        expect(childWorkflowRuns).toEqual([
+            {
+                parentWorkflowRunId: "workflow-active-1",
+                stepName: `process-file:${addedFileId}`,
+                specName: "process-file",
+                input: { graphId: "graph-1", fileId: addedFileId },
+            },
+        ]);
+        expect(processRunFileValues).toEqual([{ processRunId: "process-run-active", fileId: addedFileId }]);
+    });
+
+    test("adds code uploads to an active process-files workflow as process-code-file children", async () => {
+        activeProcessFilesWorkflowRows.push({ id: "workflow-active-1", processRunId: "process-run-active" });
+        const form = new FormData();
+        form.append("files", new File(["export const value = 1;\n"], "src/index.ts", { type: "text/plain" }));
+
+        const response = await app().handle(
+            new Request("http://localhost/graphs/graph-1/files", {
+                method: "POST",
+                body: form,
+            })
+        );
+        const body = await response.json();
+        const addedFileId = body.data.addedFiles[0].id;
+
+        expect(response.status).toBe(200);
+        expect(body.status).toBe("success");
+        expect(body.data.workflowRunId).toBe("workflow-active-1");
+        expect(workflowInputs).toEqual([]);
+        expect(childWorkflowRuns).toEqual([
+            {
+                parentWorkflowRunId: "workflow-active-1",
+                stepName: `process-code-file:${addedFileId}`,
+                specName: "process-code-file",
+                input: { graphId: "graph-1", fileId: addedFileId },
+            },
+        ]);
+        expect(processRunFileValues).toEqual([{ processRunId: "process-run-active", fileId: addedFileId }]);
     });
 
     test("returns upload limit response when create archive expansion exceeds limits", async () => {

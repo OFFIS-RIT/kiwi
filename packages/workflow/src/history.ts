@@ -36,7 +36,9 @@ export function defaultWaitTimeoutAt(base: Readonly<Date> = new Date()): Date {
     return timeoutAt;
 }
 
-export function getContextTimeoutAt(attempt: Readonly<{ context: StepAttemptContext | null; createdAt: Date }>): Date | null {
+export function getContextTimeoutAt(
+    attempt: Readonly<{ context: StepAttemptContext | null; createdAt: Date }>
+): Date | null {
     if (attempt.context?.kind !== "workflow" && attempt.context?.kind !== "signal-wait") {
         return null;
     }
@@ -130,7 +132,10 @@ export class StepHistory {
         return undefined;
     }
 
-    findConflictingSignalWait(signal: string, excludeStepName: string): { stepName: string; attempt: StepAttempt } | null {
+    findConflictingSignalWait(
+        signal: string,
+        excludeStepName: string
+    ): { stepName: string; attempt: StepAttempt } | null {
         for (const [stepName, attempt] of this.runningByStepName) {
             if (
                 stepName !== excludeStepName &&

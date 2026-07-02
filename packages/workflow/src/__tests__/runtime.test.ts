@@ -48,7 +48,9 @@ class InMemoryWorkflowBackend implements Backend {
     private sequence = 0;
 
     workflowRuns(): WorkflowRun[] {
-        return [...this.workflowRunsById.values()].sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
+        return [...this.workflowRunsById.values()].sort(
+            (left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id)
+        );
     }
 
     childWorkflowRuns(parentWorkflowRunId: string): WorkflowRun[] {
@@ -57,7 +59,9 @@ class InMemoryWorkflowBackend implements Backend {
                 .filter((attempt) => attempt.workflowRunId === parentWorkflowRunId && attempt.kind === "workflow")
                 .map((attempt) => attempt.id)
         );
-        return this.workflowRuns().filter((run) => run.parentStepAttemptId !== null && parentStepAttemptIds.has(run.parentStepAttemptId));
+        return this.workflowRuns().filter(
+            (run) => run.parentStepAttemptId !== null && parentStepAttemptIds.has(run.parentStepAttemptId)
+        );
     }
 
     waitForWorkflowRuns(predicate: RunPredicate): Promise<void> {
@@ -70,7 +74,102 @@ class InMemoryWorkflowBackend implements Backend {
         return promise;
     }
 
-    async createWorkflowRun(params: Readonly<CreateWorkflowRunParams>): Promise<WorkflowRun> {
+    async startWorkflowRun(params: Readonly<Omit<CreateWorkflowRunParams, "parentStepAttemptNamespaceId" | "parentStepAttemptId">>): Promise<WorkflowRun> {
+        return this.createWorkflowRun({
+            ...params,
+            parentStepAttemptNamespaceId: null,
+            parentStepAttemptId: null,
+        });
+    }
+
+    async claimNextRunnableWorkflow(params: Readonly<ClaimWorkflowRunParams>): Promise<WorkflowRun | null> {
+        return this.claimWorkflowRun(params);
+    }
+
+    async heartbeatClaim(params: Readonly<ExtendWorkflowRunLeaseParams>): Promise<WorkflowRun> {
+        return this.extendWorkflowRunLease(params);
+    }
+
+    async parkClaimedWorkflow(params: Readonly<SleepWorkflowRunParams>): Promise<WorkflowRun> {
+        return this.sleepWorkflowRun(params);
+    }
+
+    async completeClaimedWorkflow(params: Readonly<CompleteWorkflowRunParams>): Promise<WorkflowRun> {
+        return this.completeWorkflowRun(params);
+    }
+
+    async failClaimedWorkflow(params: Readonly<FailWorkflowRunParams>): Promise<WorkflowRun> {
+        return this.failWorkflowRun(params);
+    }
+
+    async rescheduleClaimedWorkflowAfterStepFailure(
+        params: Readonly<RescheduleWorkflowRunAfterFailedStepAttemptParams>
+    ): Promise<WorkflowRun> {
+        return this.rescheduleWorkflowRunAfterFailedStepAttempt(params);
+    }
+
+    async startStepAttempt(params: Readonly<CreateStepAttemptParams>): Promise<StepAttempt> {
+        return this.createStepAttempt(params);
+    }
+
+    async recordStepAttemptResult(
+        params: Readonly<
+            | (CompleteStepAttemptParams & { readonly status: "completed" })
+            | (FailStepAttemptParams & { readonly status: "failed" })
+        >
+    ): Promise<StepAttempt> {
+        return params.status === "completed" ? this.completeStepAttempt(params) : this.failStepAttempt(params);
+    }
+
+    async startChildWorkflow<Input>(
+        params: Readonly<{
+            parentWorkflowRunId: string;
+            stepName: string;
+            workflowName: string;
+            version: string | null;
+            input: Input;
+            config?: JsonValue;
+            timeoutAt?: Date | null;
+            idempotencyKey?: string;
+            workerId?: string;
+            stepAttemptId?: string;
+        }>
+    ): Promise<AddChildWorkflowRunResult> {
+        if (params.stepAttemptId && params.workerId) {
+            const workflowRun = await this.createWorkflowRun({
+                workflowName: params.workflowName,
+                version: params.version,
+                idempotencyKey: params.idempotencyKey ?? null,
+                config: params.config ?? {},
+                context: null,
+                input: params.input as JsonValue,
+                parentStepAttemptNamespaceId: this.namespaceId,
+                parentStepAttemptId: params.stepAttemptId,
+                availableAt: null,
+                deadlineAt: params.timeoutAt ?? null,
+            });
+            const stepAttempt = await this.setStepAttemptChildWorkflowRun({
+                workflowRunId: params.parentWorkflowRunId,
+                stepAttemptId: params.stepAttemptId,
+                workerId: params.workerId,
+                childWorkflowRunNamespaceId: workflowRun.namespaceId,
+                childWorkflowRunId: workflowRun.id,
+            });
+            return { stepAttempt, workflowRun };
+        }
+
+        return this.addChildWorkflowRun(params);
+    }
+
+    async deliverSignal(params: Readonly<SendSignalParams>): Promise<SendSignalResult> {
+        return this.sendSignal(params);
+    }
+
+    async awaitSignal(params: Readonly<GetSignalDeliveryParams>): Promise<JsonValue | undefined> {
+        return this.getSignalDelivery(params);
+    }
+
+    private async createWorkflowRun(params: Readonly<CreateWorkflowRunParams>): Promise<WorkflowRun> {
         if (params.idempotencyKey !== null) {
             const existing = this.workflowRuns().find(
                 (run) => run.workflowName === params.workflowName && run.idempotencyKey === params.idempotencyKey
@@ -127,7 +226,7 @@ class InMemoryWorkflowBackend implements Backend {
         return counts;
     }
 
-    async claimWorkflowRun(params: Readonly<ClaimWorkflowRunParams>): Promise<WorkflowRun | null> {
+    private async claimWorkflowRun(params: Readonly<ClaimWorkflowRunParams>): Promise<WorkflowRun | null> {
         const nowMs = Date.now();
         const candidate = this.workflowRuns()
             .filter(
@@ -159,12 +258,15 @@ class InMemoryWorkflowBackend implements Backend {
         });
     }
 
-    async extendWorkflowRunLease(params: Readonly<ExtendWorkflowRunLeaseParams>): Promise<WorkflowRun> {
+    private async extendWorkflowRunLease(params: Readonly<ExtendWorkflowRunLeaseParams>): Promise<WorkflowRun> {
         const run = this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
-        return this.updateWorkflowRun(run.id, { availableAt: new Date(Date.now() + params.leaseDurationMs), updatedAt: this.now() });
+        return this.updateWorkflowRun(run.id, {
+            availableAt: new Date(Date.now() + params.leaseDurationMs),
+            updatedAt: this.now(),
+        });
     }
 
-    async sleepWorkflowRun(params: Readonly<SleepWorkflowRunParams>): Promise<WorkflowRun> {
+    private async sleepWorkflowRun(params: Readonly<SleepWorkflowRunParams>): Promise<WorkflowRun> {
         const run = this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
         return this.updateWorkflowRun(run.id, {
             status: "running",
@@ -174,7 +276,7 @@ class InMemoryWorkflowBackend implements Backend {
         });
     }
 
-    async completeWorkflowRun(params: Readonly<CompleteWorkflowRunParams>): Promise<WorkflowRun> {
+    private async completeWorkflowRun(params: Readonly<CompleteWorkflowRunParams>): Promise<WorkflowRun> {
         const run = this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
         const completed = this.updateWorkflowRun(run.id, {
             status: "completed",
@@ -189,7 +291,7 @@ class InMemoryWorkflowBackend implements Backend {
         return completed;
     }
 
-    async failWorkflowRun(params: Readonly<FailWorkflowRunParams>): Promise<WorkflowRun> {
+    private async failWorkflowRun(params: Readonly<FailWorkflowRunParams>): Promise<WorkflowRun> {
         const run = this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
         const failure = workflowFailureUpdate(params.retryPolicy, params.error);
         const failed = this.updateWorkflowRun(run.id, {
@@ -206,7 +308,7 @@ class InMemoryWorkflowBackend implements Backend {
         return failed;
     }
 
-    async rescheduleWorkflowRunAfterFailedStepAttempt(
+    private async rescheduleWorkflowRunAfterFailedStepAttempt(
         params: Readonly<RescheduleWorkflowRunAfterFailedStepAttemptParams>
     ): Promise<WorkflowRun> {
         const run = this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
@@ -233,7 +335,7 @@ class InMemoryWorkflowBackend implements Backend {
         return canceled;
     }
 
-    async createStepAttempt(params: Readonly<CreateStepAttemptParams>): Promise<StepAttempt> {
+    private async createStepAttempt(params: Readonly<CreateStepAttemptParams>): Promise<StepAttempt> {
         this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
         const now = this.now();
         const attempt: StepAttempt = {
@@ -258,30 +360,44 @@ class InMemoryWorkflowBackend implements Backend {
         return attempt;
     }
 
-    async getStepAttempt(params: Readonly<GetStepAttemptParams>): Promise<StepAttempt | null> {
+    private async getStepAttempt(params: Readonly<GetStepAttemptParams>): Promise<StepAttempt | null> {
         return this.stepAttemptsById.get(params.stepAttemptId) ?? null;
     }
 
     async listStepAttempts(params: Readonly<ListStepAttemptsParams>): Promise<PaginatedResponse<StepAttempt>> {
         const attempts = [...this.stepAttemptsById.values()]
             .filter((attempt) => attempt.workflowRunId === params.workflowRunId)
-            .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
+            .sort(
+                (left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id)
+            );
         return { data: attempts.slice(0, params.limit ?? 1000), pagination: { next: null, prev: null } };
     }
 
-    async completeStepAttempt(params: Readonly<CompleteStepAttemptParams>): Promise<StepAttempt> {
+    private async completeStepAttempt(params: Readonly<CompleteStepAttemptParams>): Promise<StepAttempt> {
         this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
         const attempt = this.requireRunningStepAttempt(params.workflowRunId, params.stepAttemptId);
-        return this.updateStepAttempt(attempt.id, { status: "completed", output: params.output, error: null, finishedAt: this.now(), updatedAt: this.now() });
+        return this.updateStepAttempt(attempt.id, {
+            status: "completed",
+            output: params.output,
+            error: null,
+            finishedAt: this.now(),
+            updatedAt: this.now(),
+        });
     }
 
-    async failStepAttempt(params: Readonly<FailStepAttemptParams>): Promise<StepAttempt> {
+    private async failStepAttempt(params: Readonly<FailStepAttemptParams>): Promise<StepAttempt> {
         this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
         const attempt = this.requireRunningStepAttempt(params.workflowRunId, params.stepAttemptId);
-        return this.updateStepAttempt(attempt.id, { status: "failed", output: null, error: params.error, finishedAt: this.now(), updatedAt: this.now() });
+        return this.updateStepAttempt(attempt.id, {
+            status: "failed",
+            output: null,
+            error: params.error,
+            finishedAt: this.now(),
+            updatedAt: this.now(),
+        });
     }
 
-    async setStepAttemptChildWorkflowRun(params: Readonly<SetStepAttemptChildWorkflowRunParams>): Promise<StepAttempt> {
+    private async setStepAttemptChildWorkflowRun(params: Readonly<SetStepAttemptChildWorkflowRunParams>): Promise<StepAttempt> {
         this.requireOwnedRunningWorkflowRun(params.workflowRunId, params.workerId);
         const attempt = this.requireRunningStepAttempt(params.workflowRunId, params.stepAttemptId);
         return this.updateStepAttempt(attempt.id, {
@@ -291,15 +407,23 @@ class InMemoryWorkflowBackend implements Backend {
         });
     }
 
-    async sendSignal(params: Readonly<SendSignalParams>): Promise<SendSignalResult> {
+    private async sendSignal(_params: Readonly<SendSignalParams>): Promise<SendSignalResult> {
         return { workflowRunIds: [] };
     }
 
-    async getSignalDelivery(params: Readonly<GetSignalDeliveryParams>): Promise<JsonValue | undefined> {
+    private async getSignalDelivery(_params: Readonly<GetSignalDeliveryParams>): Promise<JsonValue | undefined> {
         return undefined;
     }
 
-    async addChildWorkflowRun<Input>(params: Readonly<{ parentWorkflowRunId: string; stepName: string; workflowName: string; version: string | null; input: Input }>): Promise<AddChildWorkflowRunResult> {
+    private async addChildWorkflowRun<Input>(
+        params: Readonly<{
+            parentWorkflowRunId: string;
+            stepName: string;
+            workflowName: string;
+            version: string | null;
+            input: Input;
+        }>
+    ): Promise<AddChildWorkflowRunResult> {
         const parent = this.requireWorkflowRun(params.parentWorkflowRunId);
         const attempt = await this.createStepAttempt({
             workflowRunId: parent.id,
@@ -344,7 +468,8 @@ class InMemoryWorkflowBackend implements Backend {
 
     private hasRunningFunctionStep(workflowRunId: string): boolean {
         return [...this.stepAttemptsById.values()].some(
-            (attempt) => attempt.workflowRunId === workflowRunId && attempt.kind === "function" && attempt.status === "running"
+            (attempt) =>
+                attempt.workflowRunId === workflowRunId && attempt.kind === "function" && attempt.status === "running"
         );
     }
 
@@ -399,11 +524,18 @@ class InMemoryWorkflowBackend implements Backend {
             return;
         }
         const parentRun = this.workflowRunsById.get(parentAttempt.workflowRunId);
-        if (!parentRun || parentRun.workerId !== null || (parentRun.status !== "running" && parentRun.status !== "sleeping")) {
+        if (
+            !parentRun ||
+            parentRun.workerId !== null ||
+            (parentRun.status !== "running" && parentRun.status !== "sleeping")
+        ) {
             return;
         }
         const now = this.now();
-        const availableAt = parentRun.availableAt === null || parentRun.availableAt.getTime() > now.getTime() ? now : parentRun.availableAt;
+        const availableAt =
+            parentRun.availableAt === null || parentRun.availableAt.getTime() > now.getTime()
+                ? now
+                : parentRun.availableAt;
         this.updateWorkflowRun(parentRun.id, { availableAt, updatedAt: now });
     }
 
@@ -425,7 +557,10 @@ function statusClaimPriority(status: WorkflowRunStatus): number {
     return status === "pending" ? 0 : 1;
 }
 
-function workflowFailureUpdate(retryPolicy: RetryPolicy, error: SerializedError): { status: "pending" | "failed"; error: SerializedError; availableAt: Date | null; finishedAt: Date | null } {
+function workflowFailureUpdate(
+    retryPolicy: RetryPolicy,
+    error: SerializedError
+): { status: "pending" | "failed"; error: SerializedError; availableAt: Date | null; finishedAt: Date | null } {
     if (retryPolicy.maximumAttempts === 0) {
         return { status: "pending", error, availableAt: new Date(), finishedAt: null };
     }
@@ -466,7 +601,9 @@ describe("workflow runtime worker parking", () => {
         const markerHandle = await marker.run();
 
         await runReadyWorkflow(worker);
-        await backend.waitForWorkflowRuns((runs) => runs.some((run) => run.id === sleeperHandle.workflowRun.id && run.workerId === null));
+        await backend.waitForWorkflowRuns((runs) =>
+            runs.some((run) => run.id === sleeperHandle.workflowRun.id && run.workerId === null)
+        );
         await flushRuntimeMicrotasks();
 
         const parkedSleeper = await backend.getWorkflowRun({ workflowRunId: sleeperHandle.workflowRun.id });
@@ -476,7 +613,9 @@ describe("workflow runtime worker parking", () => {
         expect(parkedSleeper?.availableAt?.getTime()).toBeGreaterThan(Date.now());
 
         await runReadyWorkflow(worker);
-        await backend.waitForWorkflowRuns((runs) => runs.some((run) => run.id === markerHandle.workflowRun.id && run.status === "completed"));
+        await backend.waitForWorkflowRuns((runs) =>
+            runs.some((run) => run.id === markerHandle.workflowRun.id && run.status === "completed")
+        );
 
         const completedMarker = await backend.getWorkflowRun({ workflowRunId: markerHandle.workflowRun.id });
         expect(completedMarker?.output).toBe("claimed-after-park");
@@ -504,7 +643,9 @@ describe("workflow runtime child fan-out", () => {
 
         await runReadyWorkflow(worker);
         await backend.waitForWorkflowRuns(() => backend.childWorkflowRuns(parentHandle.workflowRun.id).length === 3);
-        await backend.waitForWorkflowRuns((runs) => runs.some((run) => run.id === parentHandle.workflowRun.id && run.workerId === null));
+        await backend.waitForWorkflowRuns((runs) =>
+            runs.some((run) => run.id === parentHandle.workflowRun.id && run.workerId === null)
+        );
         await flushRuntimeMicrotasks();
 
         const parkedParent = await backend.getWorkflowRun({ workflowRunId: parentHandle.workflowRun.id });
@@ -513,11 +654,15 @@ describe("workflow runtime child fan-out", () => {
 
         for (const childRun of backend.childWorkflowRuns(parentHandle.workflowRun.id)) {
             await runReadyWorkflow(worker);
-            await backend.waitForWorkflowRuns((runs) => runs.some((run) => run.id === childRun.id && run.status === "completed"));
+            await backend.waitForWorkflowRuns((runs) =>
+                runs.some((run) => run.id === childRun.id && run.status === "completed")
+            );
         }
 
         await runReadyWorkflow(worker);
-        await backend.waitForWorkflowRuns((runs) => runs.some((run) => run.id === parentHandle.workflowRun.id && run.status === "completed"));
+        await backend.waitForWorkflowRuns((runs) =>
+            runs.some((run) => run.id === parentHandle.workflowRun.id && run.status === "completed")
+        );
 
         const completedParent = await backend.getWorkflowRun({ workflowRunId: parentHandle.workflowRun.id });
         expect(completedParent?.output).toEqual([10, 20, 30]);
@@ -534,7 +679,9 @@ describe("workflow runtime child fan-out", () => {
                 step.runWorkflow(child.workflow.spec, 6, { name: "sixth-child" }),
             ]);
             return settled.map((result) =>
-                result.status === "fulfilled" ? { status: result.status, value: result.value } : { status: result.status }
+                result.status === "fulfilled"
+                    ? { status: result.status, value: result.value }
+                    : { status: result.status }
             );
         });
         const worker = client.newWorker();
@@ -543,7 +690,9 @@ describe("workflow runtime child fan-out", () => {
 
         await runReadyWorkflow(worker);
         await backend.waitForWorkflowRuns(() => backend.childWorkflowRuns(parentHandle.workflowRun.id).length === 3);
-        await backend.waitForWorkflowRuns((runs) => runs.some((run) => run.id === parentHandle.workflowRun.id && run.workerId === null));
+        await backend.waitForWorkflowRuns((runs) =>
+            runs.some((run) => run.id === parentHandle.workflowRun.id && run.workerId === null)
+        );
         await flushRuntimeMicrotasks();
 
         const parkedParent = await backend.getWorkflowRun({ workflowRunId: parentHandle.workflowRun.id });
@@ -552,11 +701,15 @@ describe("workflow runtime child fan-out", () => {
 
         for (const childRun of backend.childWorkflowRuns(parentHandle.workflowRun.id)) {
             await runReadyWorkflow(worker);
-            await backend.waitForWorkflowRuns((runs) => runs.some((run) => run.id === childRun.id && run.status === "completed"));
+            await backend.waitForWorkflowRuns((runs) =>
+                runs.some((run) => run.id === childRun.id && run.status === "completed")
+            );
         }
 
         await runReadyWorkflow(worker);
-        await backend.waitForWorkflowRuns((runs) => runs.some((run) => run.id === parentHandle.workflowRun.id && run.status === "completed"));
+        await backend.waitForWorkflowRuns((runs) =>
+            runs.some((run) => run.id === parentHandle.workflowRun.id && run.status === "completed")
+        );
 
         const completedParent = await backend.getWorkflowRun({ workflowRunId: parentHandle.workflowRun.id });
         expect(completedParent?.output).toEqual([

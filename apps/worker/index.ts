@@ -1,6 +1,7 @@
 import { WorkflowBackend, WorkflowClient } from "@kiwi/workflow";
 import { configureAIConcurrency } from "@kiwi/ai";
 import { bootstrapLegacyModelsFromEnv } from "@kiwi/ai/models";
+import { getLogger } from "@kiwi/logger";
 import { runWorkerEffect } from "./lib/runtime/effect";
 import { env } from "./env";
 
@@ -15,4 +16,4 @@ configureAIConcurrency({
 await runWorkerEffect(bootstrapLegacyModelsFromEnv({ env: process.env }));
 
 export const workflowBackend = new WorkflowBackend();
-export const wo = new WorkflowClient({ backend: workflowBackend });
+export const wo = new WorkflowClient({ backend: workflowBackend, logger: getLogger() });
