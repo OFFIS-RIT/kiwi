@@ -3,11 +3,24 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { Elysia } from "elysia";
 
-let scenario: "list-public" | "create-admin" | "patch-no-changes" | "delete-promote" | "delete-missing" = "list-public";
+let scenario:
+    | "list-public"
+    | "create-admin"
+    | "patch-no-changes"
+    | "delete-promote"
+    | "delete-missing"
+    | "test-stored-api-key" = "list-public";
 let txSelectCount = 0;
 const encryptedCredentialsInputs: Array<{ apiKey: string; url?: string; resourceName?: string }> = [];
+const decryptedCredentialsInputs: string[] = [];
 const updateCalls: Array<Record<string, unknown>> = [];
 const deleteCalls: string[] = [];
+const probeCalls: Array<{
+    type: string;
+    adapter: string;
+    providerModel: string;
+    credentials: { apiKey: string; url?: string; resourceName?: string };
+}> = [];
 let insertedModelValues: Record<string, unknown> | null = null;
 
 const currentModel = {
@@ -132,11 +145,14 @@ mock.module("@kiwi/ai/models", () => ({
     allocateModelId: (_tx: unknown, _organizationId: string, modelId: string) =>
         Effect.succeed(`allocated-${modelId.trim()}`),
     assertValidModelConfiguration: () => undefined,
-    decryptModelCredentials: () => ({
-        apiKey: "stored-secret",
-        url: "https://stored.example.com",
-        resourceName: "stored-resource",
-    }),
+    decryptModelCredentials: (encryptedCredentials: string) => {
+        decryptedCredentialsInputs.push(encryptedCredentials);
+        return {
+            apiKey: encryptedCredentials === currentModel.encryptedCredentials ? "stored-secret" : "unexpected-secret",
+            url: "https://stored.example.com",
+            resourceName: "stored-resource",
+        };
+    },
     encryptModelCredentials: (credentials: { apiKey: string; url?: string; resourceName?: string }) => {
         encryptedCredentialsInputs.push(credentials);
         return `encrypted:${credentials.apiKey}:${credentials.url ?? ""}:${credentials.resourceName ?? ""}`;
@@ -164,6 +180,18 @@ mock.module("@kiwi/ai/models", () => ({
     }),
 }));
 
+mock.module("@kiwi/ai/probe", () => ({
+    probeModelConfiguration: (input: {
+        type: string;
+        adapter: string;
+        providerModel: string;
+        credentials: { apiKey: string; url?: string; resourceName?: string };
+    }) => {
+        probeCalls.push(input);
+        return Promise.resolve({ ok: true });
+    },
+}));
+
 const mockDb = {
     db: {
         select: () => ({
@@ -182,6 +210,12 @@ const mockDb = {
                                 isDefault: false,
                             },
                         ]),
+                    limit: () =>
+                        limitedRows(
+                            scenario === "test-stored-api-key"
+                                ? [{ encryptedCredentials: currentModel.encryptedCredentials }]
+                                : []
+                        ),
                 }),
             }),
         }),
@@ -246,9 +280,11 @@ describe("models route characterization", () => {
         scenario = "list-public";
         txSelectCount = 0;
         encryptedCredentialsInputs.length = 0;
+        decryptedCredentialsInputs.length = 0;
         updateCalls.length = 0;
         deleteCalls.length = 0;
         insertedModelValues = null;
+        probeCalls.length = 0;
     });
 
     test("non-admin list returns public text models only", async () => {
@@ -313,6 +349,104 @@ describe("models route characterization", () => {
             isDefault: true,
         });
         expect(updateCalls).toContainEqual({ isDefault: false });
+    });
+
+    test("test endpoint probes explicit credentials with trimmed configuration", async () => {
+        const response = await new Elysia().use(modelsRoute).handle(
+            new Request("http://localhost/models/test", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    type: "text",
+                    adapter: "openai",
+                    provider_model: " gpt-4o-mini ",
+                    credentials: {
+                        apiKey: "  secret-key  ",
+                        url: "  https://api.example.com  ",
+                        resourceName: "  deployment-1  ",
+                    },
+                }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body).toEqual({
+            status: "success",
+            data: { ok: true },
+        });
+        expect(probeCalls).toEqual([
+            {
+                type: "text",
+                adapter: "openai",
+                providerModel: "gpt-4o-mini",
+                credentials: {
+                    apiKey: "secret-key",
+                    url: "https://api.example.com",
+                    resourceName: "deployment-1",
+                },
+            },
+        ]);
+    });
+
+    test("test endpoint reuses stored credentials when api key is omitted for a model", async () => {
+        scenario = "test-stored-api-key";
+
+        const response = await new Elysia().use(modelsRoute).handle(
+            new Request("http://localhost/models/test", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    model_id: " GPT-4O-MINI ",
+                    type: "text",
+                    adapter: "openai",
+                    provider_model: " gpt-4o-mini ",
+                    credentials: {
+                        url: "  https://api.example.com  ",
+                    },
+                }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body).toEqual({
+            status: "success",
+            data: { ok: true },
+        });
+        expect(probeCalls).toEqual([
+            {
+                type: "text",
+                adapter: "openai",
+                providerModel: "gpt-4o-mini",
+                credentials: {
+                    apiKey: "stored-secret",
+                    url: "https://api.example.com",
+                },
+            },
+        ]);
+        expect(decryptedCredentialsInputs).toEqual([currentModel.encryptedCredentials]);
+    });
+
+    test("test endpoint rejects omitted api key without a model id", async () => {
+        const response = await new Elysia().use(modelsRoute).handle(
+            new Request("http://localhost/models/test", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    type: "text",
+                    adapter: "openai",
+                    provider_model: "gpt-4o-mini",
+                    credentials: {},
+                }),
+            })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(body.status).toBe("error");
+        expect(body.code).toBe("INVALID_MODEL");
+        expect(probeCalls).toEqual([]);
     });
 
     test("patch with no effective fields returns the current model", async () => {

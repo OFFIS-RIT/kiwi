@@ -1,5 +1,10 @@
 import Elysia, { t } from "elysia";
-import { ModelCreateInputSchema, ModelPatchInputSchema, ModelQuerySchema } from "@kiwi/contracts/models";
+import {
+    ModelCreateInputSchema,
+    ModelPatchInputSchema,
+    ModelQuerySchema,
+    ModelTestInputSchema,
+} from "@kiwi/contracts/models";
 import { successResponse } from "@kiwi/contracts/errors";
 import { asApiSchema } from "@kiwi/contracts/schema";
 import { runApiAction } from "../controllers/_shared/api-effect";
@@ -8,6 +13,7 @@ import { deleteModel } from "../controllers/models/delete-model";
 import { listModels } from "../controllers/models/list-models";
 import { patchModel } from "../controllers/models/patch-model";
 import { setDefaultModel } from "../controllers/models/set-default-model";
+import { testModel } from "../controllers/models/test-model";
 import { authMiddleware } from "../middleware/auth";
 
 const modelIdParamsSchema = t.Object({ modelId: t.String() });
@@ -38,6 +44,19 @@ export const modelsRoute = new Elysia({ prefix: "/models" })
             }),
         {
             body: asApiSchema(ModelCreateInputSchema),
+        }
+    )
+    .post(
+        "/test",
+        ({ body, status, user }) =>
+            runApiAction({
+                status,
+                user,
+                action: (currentUser) => testModel({ user: currentUser, body }),
+                success: (value) => status(200, successResponse(value)),
+            }),
+        {
+            body: asApiSchema(ModelTestInputSchema),
         }
     )
     .patch(

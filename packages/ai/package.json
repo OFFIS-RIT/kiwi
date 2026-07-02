@@ -9,6 +9,7 @@
         "./lock": "./src/lock.ts",
         "./mcp": "./src/mcp/index.ts",
         "./models": "./src/models.ts",
+        "./probe": "./src/probe.ts",
         "./tools/toolsets": "./src/tools/toolsets.ts",
         "./ui": "./src/ui.ts",
         "./prompts/*": "./src/prompts/*.ts"

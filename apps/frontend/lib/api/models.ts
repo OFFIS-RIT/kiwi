@@ -10,6 +10,8 @@ import type {
     ApiResponse,
     ModelCreateInput,
     ModelPatchInput,
+    ModelTestInput,
+    ModelTestResult,
     PublicModelListItem,
 } from "@kiwi/contracts";
 import { unwrapApiResponse, type KiwiApiClient } from "./client";
@@ -61,6 +63,15 @@ export async function updateModel(
     input: ModelPatchInput
 ): Promise<AdminModelListItem> {
     const response = await client.patch<AdminModelResponse>(modelPath(modelId), input);
+    return unwrapApiResponse(response);
+}
+
+/**
+ * Probes the given configuration against the provider without persisting it.
+ * Omit credentials.apiKey and pass model_id to test with the stored key.
+ */
+export async function testModelConnection(client: KiwiApiClient, input: ModelTestInput): Promise<ModelTestResult> {
+    const response = await client.post<ApiResponse<ModelTestResult>>("/models/test", input);
     return unwrapApiResponse(response);
 }
 

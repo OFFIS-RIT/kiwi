@@ -75,6 +75,28 @@ export const ModelPatchInputSchema = Schema.Struct({
 });
 export type ModelPatchInput = MutableSchemaType<Schema.Schema.Type<typeof ModelPatchInputSchema>>;
 
+export const MODEL_TEST_FAILURE_REASON_VALUES = ["auth", "not_found", "unreachable", "unknown"] as const;
+export const ModelTestFailureReasonSchema = Schema.Literals(MODEL_TEST_FAILURE_REASON_VALUES);
+export type ModelTestFailureReason = Schema.Schema.Type<typeof ModelTestFailureReasonSchema>;
+
+export type ModelTestResult = { ok: true } | { ok: false; reason: ModelTestFailureReason; message: string };
+
+export const ModelTestCredentialsInputSchema = Schema.Struct({
+    apiKey: OptionalNonEmptyTrimmedStringSchema,
+    url: OptionalNonEmptyTrimmedStringSchema,
+    resourceName: OptionalNonEmptyTrimmedStringSchema,
+});
+export type ModelTestCredentialsInput = MutableSchemaType<Schema.Schema.Type<typeof ModelTestCredentialsInputSchema>>;
+
+export const ModelTestInputSchema = Schema.Struct({
+    model_id: OptionalNonEmptyTrimmedStringSchema,
+    type: AiModelTypeSchema,
+    adapter: AiModelAdapterSchema,
+    provider_model: NonEmptyTrimmedStringSchema,
+    credentials: ModelTestCredentialsInputSchema,
+});
+export type ModelTestInput = MutableSchemaType<Schema.Schema.Type<typeof ModelTestInputSchema>>;
+
 export const ModelQuerySchema = Schema.Struct({
     type: Schema.optional(AiModelTypeSchema),
 });

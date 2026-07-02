@@ -2,8 +2,9 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { createModel, updateModel } = vi.hoisted(() => ({
+const { createModel, testModelConnection, updateModel } = vi.hoisted(() => ({
     createModel: vi.fn(),
+    testModelConnection: vi.fn(),
     updateModel: vi.fn(),
 }));
 
@@ -27,6 +28,7 @@ Object.defineProperties(HTMLElement.prototype, {
 
 vi.mock("@/lib/api/models", () => ({
     createModel,
+    testModelConnection,
     updateModel,
 }));
 
@@ -88,6 +90,7 @@ describe("ModelFormDialog", () => {
         vi.clearAllMocks();
         createModel.mockResolvedValue(adminModel);
         updateModel.mockResolvedValue(adminModel);
+        testModelConnection.mockResolvedValue({ ok: true });
     });
 
     test("creates a model with a model id slugged from the display name", async () => {
@@ -284,6 +287,63 @@ describe("ModelFormDialog", () => {
         expect(updateModel).toHaveBeenCalledWith(expect.anything(), "local-llm", {
             adapter: "openai",
             credentials: { url: "" },
+        });
+    });
+
+    test("blocks the save and shows the reason when the connection probe fails", async () => {
+        testModelConnection.mockResolvedValue({ ok: false, reason: "auth", message: "invalid api key" });
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(<ModelFormDialog open onOpenChange={vi.fn()} type="text" onSaved={onSaved} />);
+
+        await user.type(screen.getByLabelText("Anzeigename"), "GPT 4.1 Mini");
+        await user.type(screen.getByLabelText("Provider-Modell-Name"), "gpt-4.1-mini");
+        await user.type(screen.getByLabelText("API-Schlüssel"), "wrong-key");
+        await user.click(screen.getByRole("button", { name: "Modell hinzufügen" }));
+
+        expect(
+            await screen.findByText("Authentifizierung fehlgeschlagen. Prüfe den API-Schlüssel.")
+        ).toBeInTheDocument();
+        expect(screen.getByText("invalid api key")).toBeInTheDocument();
+        expect(createModel).not.toHaveBeenCalled();
+        expect(onSaved).not.toHaveBeenCalled();
+    });
+
+    test("skips the connection probe when only the display name changes", async () => {
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(
+            <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={adminModel} onSaved={onSaved} />
+        );
+
+        const nameInput = screen.getByLabelText("Anzeigename");
+        await user.clear(nameInput);
+        await user.type(nameInput, "GPT-4.1 mini (renamed)");
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(testModelConnection).not.toHaveBeenCalled();
+    });
+
+    test("probes with the stored key reference when the key stays empty", async () => {
+        const user = userEvent.setup();
+        const onSaved = vi.fn();
+        renderWithProviders(
+            <ModelFormDialog open onOpenChange={vi.fn()} type="text" model={openaiApiModel} onSaved={onSaved} />
+        );
+
+        const urlInput = screen.getByLabelText("Endpunkt-URL");
+        await user.clear(urlInput);
+        await user.type(urlInput, "https://other.example.com/v1");
+        await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(testModelConnection).toHaveBeenCalledWith(expect.anything(), {
+            type: "text",
+            adapter: "openaiAPI",
+            provider_model: "gpt-oss-120b",
+            credentials: { url: "https://other.example.com/v1" },
+            model_id: "local-llm",
         });
     });
 
