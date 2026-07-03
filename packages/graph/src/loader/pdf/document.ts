@@ -18,7 +18,7 @@ import { analyzePageContent } from "./content";
 import { extractOCRTextFromPDFPages } from "./ocr";
 import { getPDFPageGeometry, type PDFPageGeometry } from "./page-geometry";
 import { findRepeatedEdgeLinePatterns, renderPageBlocks } from "./render";
-import { detectTables, extractWords, looksLikeRotatedDrawnTableLayout } from "./table";
+import { detectTables, extractWords, looksLikeDenseDrawnGridLayout, looksLikeRotatedDrawnTableLayout } from "./table";
 import {
     extractImageFenceId,
     materializePageEntries,
@@ -405,6 +405,12 @@ export function shouldUsePageOCRFallback(pageText: PreparedPage["pageText"], con
     if (getRotatedDrawnTableSignal(pageText, content).hasLargeDetectedTable) {
         return false;
     }
+    if (looksLikeDenseDrawnGridLayout(pageText, pageText.lines, content.explicitEdges)) {
+        return false;
+    }
+    if (hasSubstantialDrawnTableText(content, lineCount, characterCount)) {
+        return false;
+    }
 
     const shortLineRatio = lines.filter((line) => line.text.length <= 16).length / lineCount;
     const isolatedTokenRatio =
@@ -419,7 +425,7 @@ export function shouldUsePageOCRFallback(pageText: PreparedPage["pageText"], con
     const fragmentedText = lineFragmentedText || (characterCount >= 200 && alphaFragmentedText);
     const verticalFragments =
         lineCount >= 12 && verticalLineRatio >= 0.25 && (averageLineLength <= 24 || shortLineRatio >= 0.5);
-    const imageDominantPage = content.images.length >= 4 && characterCount < 500 && lineCount < 12;
+    const imageDominantPage = content.images.length >= 4 && characterCount < 80 && lineCount <= 2;
 
     return fragmentedText || verticalFragments || imageDominantPage;
 }
@@ -442,6 +448,22 @@ function hasAlphaFragmentedText(lines: string[]): boolean {
         (singleAlphaTokenRatio >= 0.18 && shortAlphaTokenRatio >= 0.45) ||
         (fragmentedRunCount >= 4 && singleAlphaTokenRatio >= 0.12 && shortAlphaTokenRatio >= 0.35)
     );
+}
+
+function hasSubstantialDrawnTableText(
+    content: PageContentAnalysis,
+    lineCount: number,
+    characterCount: number
+): boolean {
+    if (lineCount < 10 || characterCount < 200) {
+        return false;
+    }
+
+    const drawnEdges = content.explicitEdges.filter((edge) => edge.source !== "text");
+    const horizontalEdgeCount = drawnEdges.filter((edge) => edge.orientation === "horizontal").length;
+    const verticalEdgeCount = drawnEdges.filter((edge) => edge.orientation === "vertical").length;
+
+    return horizontalEdgeCount >= 8 && verticalEdgeCount >= 4;
 }
 
 function imageAreaRatio(pageText: PreparedPage["pageText"], content: PageContentAnalysis): number {

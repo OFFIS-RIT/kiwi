@@ -60,6 +60,36 @@ function verticalLine(text: string, x: number, y: number, sequenceStart: number)
     };
 }
 
+function horizontalLine(text: string, x: number, y: number, sequenceStart: number): TextLine {
+    const chars = Array.from(text, (char, index): TextChar => {
+        const charX = x + index * 5;
+        return {
+            char,
+            bbox: { x: charX, y, width: 5, height: 8 },
+            fontSize: 8,
+            fontName: "Helvetica",
+            baseline: y + 8,
+            sequenceIndex: sequenceStart + index,
+        };
+    });
+    const bbox = bboxForChars(chars);
+
+    return {
+        text,
+        bbox,
+        baseline: y + 8,
+        spans: [
+            {
+                text,
+                bbox,
+                chars,
+                fontSize: 8,
+                fontName: "Helvetica",
+            },
+        ],
+    };
+}
+
 function rectGridEdges(xs: number[], ys: number[]): Edge[] {
     const left = Math.min(...xs);
     const right = Math.max(...xs);
@@ -120,6 +150,41 @@ function sparseRotatedTablePage(): { pageText: PageText; content: PageContentAna
             pageIndex: 0,
             width: 260,
             height: 220,
+            text: lines.map((line) => line.text).join("\n"),
+            lines,
+        },
+        content: {
+            images: [],
+            explicitEdges: rectGridEdges(xs, ys),
+            actualTextSpans: [],
+        },
+    };
+}
+
+function denseMixedDrawnGridPage(): { pageText: PageText; content: PageContentAnalysis } {
+    const xs = [30, 100, 170, 240, 310];
+    const ys = [40, 100, 160, 220, 280, 340, 400];
+    const lines: TextLine[] = [];
+    let sequence = 0;
+
+    for (let row = 0; row < ys.length - 1; row += 1) {
+        for (let column = 0; column < xs.length - 1; column += 1) {
+            const vertical = row < 2 || (row === 2 && column < 2);
+            const text = vertical ? `V${row + 1}${column + 1}A` : `Habitat-${row + 1}${column + 1}-AB`;
+            lines.push(
+                vertical
+                    ? verticalLine(text, xs[column]! + 18, ys[row]! + 10, sequence)
+                    : horizontalLine(text, xs[column]! + 4, ys[row]! + 24, sequence)
+            );
+            sequence += text.length;
+        }
+    }
+
+    return {
+        pageText: {
+            pageIndex: 0,
+            width: 340,
+            height: 460,
             text: lines.map((line) => line.text).join("\n"),
             lines,
         },
@@ -194,6 +259,17 @@ describe("shouldUsePageOCRFallback", () => {
         expect(shouldUsePageOCRFallback(pageText([]), contentWithImages(0))).toBe(false);
     });
 
+    test("keeps image-heavy pages with extracted caption and body text on the hybrid text path", () => {
+        const extractedLines = [
+            "Figure 1: Generic assembly view with labeled reference markers for review.",
+            "Caption: Synthetic component photo documents bracket placement and clearances.",
+            "Body text notes describe repeatable setup measurements for the sample page.",
+            "Additional extracted text keeps the page above the image-only OCR threshold.",
+        ];
+
+        expect(shouldUsePageOCRFallback(pageText(extractedLines), contentWithImages(4))).toBe(false);
+    });
+
     test("uses full-page OCR for alpha-fragmented extracted text", () => {
         const fragmentedLines = Array.from({ length: 24 }, (_, index) =>
             [
@@ -224,6 +300,36 @@ describe("shouldUsePageOCRFallback", () => {
         const fixture = rotatedTablePage();
 
         expect(shouldUsePageOCRFallback(fixture.pageText, fixture.content)).toBe(false);
+    });
+
+    test("keeps dense drawn-grid pages with extracted table text on the hybrid text path", () => {
+        const fixture = denseMixedDrawnGridPage();
+
+        expect(shouldUsePageOCRFallback(fixture.pageText, fixture.content)).toBe(false);
+    });
+
+    test("keeps substantial drawn table text on the hybrid text path", () => {
+        const lines: TextLine[] = [];
+        let sequence = 0;
+        for (let index = 0; index < 12; index += 1) {
+            const text = `Sample row ${String(index + 1).padStart(2, "0")} metric`;
+            lines.push(verticalLine(text, 60 + (index % 4) * 40, 40 + Math.floor(index / 4) * 80, sequence));
+            sequence += text.length;
+        }
+        const fixture: PageText = {
+            pageIndex: 0,
+            width: 260,
+            height: 320,
+            text: lines.map((line) => line.text).join("\n"),
+            lines,
+        };
+        const content: PageContentAnalysis = {
+            images: [],
+            explicitEdges: rectGridEdges([40, 100, 160, 220], [20, 60, 100, 140, 180, 220, 260, 300]),
+            actualTextSpans: [],
+        };
+
+        expect(shouldUsePageOCRFallback(fixture, content)).toBe(false);
     });
 
     test("uses full-page OCR for vertical fragments without a detected drawn table", () => {
@@ -260,10 +366,19 @@ describe("getPageOCRRotation", () => {
     });
 });
 describe("getPageRasterScale", () => {
-    test("uses scale 3 unless the rendered image would exceed 3000px", () => {
+    test("uses the 3.25 default raster scale when the rendered image stays under 3000px", () => {
         expect(getPageRasterScale({ width: 595.28, height: 841.89 })).toBe(DEFAULT_RASTER_SCALE);
+    });
+
+    test("caps default raster scales at 3000px on the longest edge", () => {
         expect(getPageRasterScale({ width: 1190.56, height: 1683.78 })).toBeCloseTo(3000 / 1683.78);
         expect(getPageRasterScale({ width: 3000, height: 1000 })).toBeCloseTo(1);
+    });
+
+    test("keeps retry scales relative to the 3.25 default unless they would exceed 3000px", () => {
+        expect(getPageRasterScale({ width: 400, height: 600 }, DEFAULT_RASTER_SCALE * 1.25)).toBe(
+            DEFAULT_RASTER_SCALE * 1.25
+        );
         expect(getPageRasterScale({ width: 595.28, height: 841.89 }, DEFAULT_RASTER_SCALE * 1.25)).toBeCloseTo(
             3000 / 841.89
         );
@@ -307,6 +422,40 @@ describe("extractOCRTextFromPDFPages", () => {
 
         expect(textByPage).toEqual(new Map([[0, "1x2"]]));
         expect(transcribePage).toHaveBeenCalledTimes(1);
+    });
+
+    test("retries length-limited rotated OCR pages at scale 2 before trying alternate rotation", async () => {
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+        const rasterizeSelectedPages = mock(
+            async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>
+                new Map(pages.map((page) => [page.index, image] as const))
+        );
+        let attempts = 0;
+        const transcribedSizes: string[] = [];
+        const transcribePage = mock(async (transcribedImage: Uint8Array) => {
+            attempts += 1;
+            transcribedSizes.push(pngSize(transcribedImage));
+            if (attempts < 3) {
+                return { text: `partial ${attempts}`, finishReason: "length" as const };
+            }
+
+            return { text: pngSize(transcribedImage), finishReason: "stop" as const };
+        });
+
+        const textByPage = await extractOCRTextFromPDFPages(
+            new Uint8Array([9]),
+            [{ index: 0, width: 400, height: 600, ocrRotation: 90 }],
+            {} as never,
+            {
+                rasterizeSelectedPages,
+                transcribePage,
+            }
+        );
+
+        expect(textByPage).toEqual(new Map([[0, "2x1"]]));
+        expect(transcribePage).toHaveBeenCalledTimes(3);
+        expect(transcribedSizes).toEqual(["1x2", "1x2", "2x1"]);
+        expect(rasterizeSelectedPages.mock.calls.map((call) => call[2])).toEqual([3, 2]);
     });
 
     test("retries length-limited OCR pages with higher raster scales and rotation", async () => {

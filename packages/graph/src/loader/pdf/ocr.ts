@@ -17,6 +17,8 @@ import type {
 } from "./types";
 const MAX_RASTER_DIMENSION_PIXELS = 3000;
 const OCR_RETRY_SCALE_MULTIPLIERS = [1.25, 1.5] as const;
+const ROTATED_OCR_RASTER_SCALE = 3;
+const ROTATED_OCR_RETRY_SCALES = [2] as const;
 const OCR_RETRY_ROTATION: PDFOCRRotation = 90;
 
 export async function extractFullOCRTextFromPDF(
@@ -71,7 +73,7 @@ export async function extractOCRTextFromPDFPages(
 
     const rasterizeSelectedPages = deps.rasterizeSelectedPages ?? defaultRasterizeSelectedPages;
     const transcribePage = deps.transcribePage ?? defaultTranscribePage;
-    const pageImages = await rasterizeSelectedPages(content, pages);
+    const pageImages = await rasterizeInitialOCRPages(content, pages, rasterizeSelectedPages);
     const pageTexts = await Promise.all(
         pages.map(async (page) => {
             const image = pageImages.get(page.index);
@@ -93,6 +95,47 @@ export async function extractOCRTextFromPDFPages(
     return new Map(
         pageTexts.filter((entry): entry is readonly [number, string] => entry !== undefined && entry[1].length > 0)
     );
+}
+
+async function rasterizeInitialOCRPages(
+    content: Uint8Array,
+    pages: PDFOCRPageSelection[],
+    rasterizeSelectedPages: NonNullable<FullOCRDeps["rasterizeSelectedPages"]>
+): Promise<Map<number, Uint8Array>> {
+    const groupedPages = new Map<number | undefined, PDFOCRPageSelection[]>();
+    for (const page of pages) {
+        const scale = getInitialOCRRasterScale(page);
+        const rasterScale = scale === DEFAULT_RASTER_SCALE ? undefined : scale;
+        groupedPages.set(rasterScale, [...(groupedPages.get(rasterScale) ?? []), page]);
+    }
+
+    const pageImages = new Map<number, Uint8Array>();
+    await Promise.all(
+        [...groupedPages.entries()].map(async ([scale, scalePages]) => {
+            const images = await rasterizeSelectedPages(content, scalePages, scale);
+            for (const [pageIndex, image] of images) {
+                pageImages.set(pageIndex, image);
+            }
+        })
+    );
+
+    return pageImages;
+}
+
+function getInitialOCRRasterScale(page: PDFOCRPageSelection): number {
+    return hasOCRRotation(page) ? ROTATED_OCR_RASTER_SCALE : DEFAULT_RASTER_SCALE;
+}
+
+function getRetryOCRRasterScales(page: PDFOCRPageSelection): number[] {
+    if (hasOCRRotation(page)) {
+        return [...ROTATED_OCR_RETRY_SCALES];
+    }
+
+    return OCR_RETRY_SCALE_MULTIPLIERS.map((multiplier) => getPageRasterScale(page, DEFAULT_RASTER_SCALE * multiplier));
+}
+
+function hasOCRRotation(page: PDFOCRPageSelection): boolean {
+    return page.ocrRotation !== undefined && page.ocrRotation !== 0;
 }
 
 export async function defaultRasterizeSelectedPages(
@@ -124,12 +167,8 @@ async function transcribeOCRPageWithRetries(options: {
         return [options.page.index, initialTranscription.text.trim()];
     }
 
-    for (const scaleMultiplier of OCR_RETRY_SCALE_MULTIPLIERS) {
-        const pageImages = await options.rasterizeSelectedPages(
-            options.content,
-            [options.page],
-            getPageRasterScale(options.page, DEFAULT_RASTER_SCALE * scaleMultiplier)
-        );
+    for (const retryScale of getRetryOCRRasterScales(options.page)) {
+        const pageImages = await options.rasterizeSelectedPages(options.content, [options.page], retryScale);
         const pageImage = pageImages.get(options.page.index);
         if (!pageImage) {
             return undefined;

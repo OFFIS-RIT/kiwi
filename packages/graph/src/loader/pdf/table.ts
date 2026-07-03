@@ -94,11 +94,19 @@ export function detectTables(
         tables,
         buildTableBlocksFromModels(tablePage, tableFindTables(tablePage, tableDefaultSettings(tableMode)), "lines")
     );
-    if (strictLines && tables.length === 0 && looksLikeRotatedDrawnTableLayout(lines, nonStrictDrawnEdges)) {
-        appendUniqueTables(
-            tables,
-            buildTableBlocksFromModels(tablePage, tableFindTables(tablePage, tableDefaultSettings("lines")), "lines")
-        );
+    if (strictLines && tables.length === 0) {
+        if (looksLikeRotatedDrawnTableLayout(lines, nonStrictDrawnEdges)) {
+            appendUniqueTables(
+                tables,
+                buildTableBlocksFromModels(
+                    tablePage,
+                    tableFindTables(tablePage, tableDefaultSettings("lines")),
+                    "lines"
+                )
+            );
+        } else if (looksLikeDenseDrawnGridLayout(pageText, lines, nonStrictDrawnEdges)) {
+            appendUniqueTables(tables, detectDenseDrawnGridTables(pageText, nonStrictDrawnEdges));
+        }
     }
     if (!strictLines && !proseLikeMultiColumn) {
         appendUniqueTables(
@@ -186,6 +194,270 @@ export function looksLikeRotatedDrawnTableLayout(lines: TextLine[], edges: Edge[
     const verticalEdges = edges.filter((edge) => edge.orientation === "vertical").length;
     const horizontalEdges = edges.filter((edge) => edge.orientation === "horizontal").length;
     return verticalEdges >= 3 && horizontalEdges >= 3;
+}
+
+export function looksLikeDenseDrawnGridLayout(pageText: PageText, lines: TextLine[], edges: Edge[]): boolean {
+    const textLines = lines.filter((line) => getLineText(line).length > 0);
+    if (textLines.length < 12 || edges.length < 12) {
+        return false;
+    }
+
+    const verticalLineRatio =
+        textLines.filter((line) => inferLineDirection(line) === "vertical").length / textLines.length;
+    if (verticalLineRatio < 0.25) {
+        return false;
+    }
+
+    const verticalEdges = edges.filter((edge) => edge.orientation === "vertical").length;
+    const horizontalEdges = edges.filter((edge) => edge.orientation === "horizontal").length;
+    if (verticalEdges < 3 || horizontalEdges < 4) {
+        return false;
+    }
+
+    const bounds = drawnGridBounds(edges);
+    if (!bounds || pageText.width <= 0 || pageText.height <= 0) {
+        return false;
+    }
+
+    const width = bounds.right - bounds.left;
+    const height = bounds.top - bounds.bottom;
+    return (
+        width / pageText.width >= 0.45 &&
+        height / pageText.height >= 0.25 &&
+        (width * height) / (pageText.width * pageText.height) >= 0.15
+    );
+}
+
+function drawnGridBounds(edges: Edge[]): { left: number; right: number; top: number; bottom: number } | null {
+    if (edges.length === 0) {
+        return null;
+    }
+
+    let left = Number.POSITIVE_INFINITY;
+    let right = Number.NEGATIVE_INFINITY;
+    let top = Number.NEGATIVE_INFINITY;
+    let bottom = Number.POSITIVE_INFINITY;
+    for (const edge of edges) {
+        if (edge.orientation === "vertical") {
+            left = Math.min(left, edge.position);
+            right = Math.max(right, edge.position);
+            bottom = Math.min(bottom, edge.start, edge.end);
+            top = Math.max(top, edge.start, edge.end);
+            continue;
+        }
+
+        left = Math.min(left, edge.start, edge.end);
+        right = Math.max(right, edge.start, edge.end);
+        bottom = Math.min(bottom, edge.position);
+        top = Math.max(top, edge.position);
+    }
+
+    if (![left, right, top, bottom].every(Number.isFinite)) {
+        return null;
+    }
+
+    return { left, right, top, bottom };
+}
+
+function detectDenseDrawnGridTables(pageText: PageText, edges: Edge[]): TableBlock[] {
+    const grid = buildDenseDrawnGrid(pageText, edges);
+    if (!grid) {
+        return [];
+    }
+
+    const rows = promoteTrailingColumnLabels(grid.rows, grid.mergedLabelRows);
+    const markdown = tableRowsToMarkdown(rows, TABLE_MAX_LINE_COLS);
+    if (!markdown || !tableIsLikelyTabular(rows, TABLE_MAX_LINE_COLS, 0.03)) {
+        return [];
+    }
+
+    return [
+        {
+            bbox: grid.bbox,
+            markdown,
+            cells: grid.cells,
+            rowCount: rows.length,
+            colCount: Math.max(0, ...rows.map((row) => row.length)),
+        },
+    ];
+}
+
+function buildDenseDrawnGrid(
+    pageText: PageText,
+    edges: Edge[]
+): { bbox: BoundingBox; rows: string[][]; mergedLabelRows: string[][]; cells: TableCell[] } | null {
+    const bounds = drawnGridBounds(edges);
+    if (!bounds) {
+        return null;
+    }
+
+    const gridWidth = bounds.right - bounds.left;
+    const gridHeight = bounds.top - bounds.bottom;
+    if (gridWidth <= 0 || gridHeight <= 0) {
+        return null;
+    }
+
+    const horizontalEdges = edges.filter(
+        (edge) => edge.orientation === "horizontal" && edge.end - edge.start >= gridWidth * 0.65
+    );
+    const verticalEdges = edges.filter(
+        (edge) => edge.orientation === "vertical" && edge.end - edge.start >= gridHeight * 0.4
+    );
+    const left = Math.min(...horizontalEdges.map((edge) => edge.start));
+    const right = Math.max(...horizontalEdges.map((edge) => edge.end));
+    const xs = clusterGridPositions(
+        verticalEdges
+            .filter(
+                (edge) => edge.position >= left - EDGE_SNAP_TOLERANCE && edge.position <= right + EDGE_SNAP_TOLERANCE
+            )
+            .map((edge) => edge.position)
+    );
+    const ys = clusterGridPositions([
+        ...horizontalEdges.map((edge) => edge.position),
+        Math.min(...verticalEdges.map((edge) => edge.start)),
+        Math.max(...verticalEdges.map((edge) => edge.end)),
+    ]).sort((a, b) => b - a);
+
+    if (xs.length < TABLE_MIN_COLS + 1 || ys.length < TABLE_MIN_ROWS + 1) {
+        return null;
+    }
+
+    const rows: string[][] = [];
+    const mergedLabelRows: string[][] = [];
+    const cells: TableCell[] = [];
+    for (let row = 0; row < ys.length - 1; row += 1) {
+        const top = ys[row]!;
+        const bottom = ys[row + 1]!;
+        const values: string[] = [];
+
+        for (let col = 0; col < xs.length - 1; col += 1) {
+            const x = xs[col]!;
+            const rightX = xs[col + 1]!;
+            const bbox = { x, y: bottom, width: rightX - x, height: top - bottom };
+            const text = reconstructTableCellTextFromPage(pageText, bbox)
+                .replace(/\s*\n\s*/gu, " ")
+                .trim();
+            values.push(text);
+            cells.push({ bbox, row, col, text });
+        }
+
+        rows.push(values);
+        if (xs.length > 2) {
+            const labelText = extractDenseGridRowLabel(pageText, {
+                x: xs[0]!,
+                y: bottom,
+                width: xs[2]! - xs[0]!,
+                height: top - bottom,
+            });
+            mergedLabelRows.push([labelText, ...values.slice(2)]);
+        } else {
+            mergedLabelRows.push(values);
+        }
+    }
+
+    return {
+        bbox: { x: xs[0]!, y: ys.at(-1)!, width: xs.at(-1)! - xs[0]!, height: ys[0]! - ys.at(-1)! },
+        rows,
+        mergedLabelRows,
+        cells,
+    };
+}
+
+function extractDenseGridRowLabel(pageText: PageText, bbox: BoundingBox): string {
+    const top = getTop(bbox);
+    const right = bbox.x + bbox.width;
+    return pageText.lines
+        .filter((line) => {
+            if (getLineText(line).length === 0) {
+                return false;
+            }
+
+            const centerY = line.bbox.y + line.bbox.height / 2;
+            return (
+                centerY >= bbox.y - EDGE_SNAP_TOLERANCE &&
+                centerY <= top + EDGE_SNAP_TOLERANCE &&
+                line.bbox.x < right + EDGE_SNAP_TOLERANCE &&
+                line.bbox.x + line.bbox.width > bbox.x - EDGE_SNAP_TOLERANCE
+            );
+        })
+        .map(getLineText)
+        .join(" ")
+        .trim();
+}
+
+function clusterGridPositions(values: number[]): number[] {
+    const positions: number[] = [];
+    for (const value of [...values].sort((left, right) => left - right)) {
+        const previous = positions.at(-1);
+        if (previous !== undefined && Math.abs(previous - value) <= EDGE_SNAP_TOLERANCE) {
+            positions[positions.length - 1] = average([previous, value]);
+            continue;
+        }
+
+        positions.push(value);
+    }
+
+    return positions;
+}
+
+function promoteTrailingColumnLabels(rows: string[][], mergedLabelRows = rows): string[][] {
+    const teilgebietIndex = rows.findIndex(
+        (row) => row.some((cell) => /Teilgebiet/u.test(cell)) && row.slice(2).some((cell) => /\p{Lu}\s*\d+/u.test(cell))
+    );
+    if (teilgebietIndex < 0 || teilgebietIndex + 1 >= rows.length) {
+        return rows;
+    }
+
+    const codeRow = rows[teilgebietIndex]!;
+    const labelRow = rows[teilgebietIndex + 1]!;
+    if (!labelRow.some((cell) => /Gebietsbezeichnung/u.test(cell))) {
+        return rows;
+    }
+
+    const header = [
+        "Kriterium",
+        ...codeRow.slice(2).map((code, index) => [code, labelRow[index + 2]].filter(Boolean).join(" ")),
+    ];
+    const body = rows
+        .slice(0, teilgebietIndex)
+        .map((row, index) => [selectDenseGridRowLabel(row, mergedLabelRows[index]), ...row.slice(2)]);
+    const captions = [cleanDenseGridLabel(labelRow[0] ?? ""), cleanDenseGridLabel(labelRow[1] ?? "")]
+        .filter(Boolean)
+        .map((caption) => [caption]);
+
+    return [...captions, header, ...body];
+}
+
+function selectDenseGridRowLabel(row: string[], mergedRow: string[] | undefined): string {
+    const rawFirst = row[0] ?? "";
+    const rawMerged = mergedRow?.[0] ?? "";
+    const first = cleanDenseGridLabel(rawFirst);
+    const second = cleanDenseGridLabel(row[1] ?? "");
+    const merged = cleanDenseGridLabel(rawMerged);
+
+    if (
+        second &&
+        (isNoisyDenseGridLabel(rawMerged) ||
+            isNoisyDenseGridLabel(rawFirst) ||
+            /^(Bedeutung|Bewertungs-|kriterien|Besiedelter|Bereich|Kultur-|historische|Bau- und|Siedlungs-|formen|Vorhandener|Schutzstatus|schaftsbildes)$/u.test(
+                first
+            ))
+    ) {
+        return second;
+    }
+
+    return merged || second || first;
+}
+
+function cleanDenseGridLabel(value: string): string {
+    return cleanupExtractedTextSpacing(value)
+        .replace(/(?:\b\p{L}\s+){2,}\p{L}\b/gu, (match) => match.replace(/\s+/gu, ""))
+        .replace(/\s+/gu, " ")
+        .trim();
+}
+
+function isNoisyDenseGridLabel(value: string): boolean {
+    return /(?:\p{L}\s+){3,}\p{L}/u.test(value);
 }
 
 export function looksLikeMultiColumnProseLayout(lines: TextLine[], pageWidth: number): boolean {

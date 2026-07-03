@@ -74,6 +74,36 @@ function horizontalRtlLine(text: string, rightX: number, y: number, sequenceStar
     };
 }
 
+function horizontalLine(text: string, x: number, y: number, sequenceStart: number): TextLine {
+    const chars = Array.from(text, (char, index): TextChar => {
+        const charX = x + index * 5;
+        return {
+            char,
+            bbox: { x: charX, y, width: 5, height: 8 },
+            fontSize: 8,
+            fontName: "Helvetica",
+            baseline: y + 8,
+            sequenceIndex: sequenceStart + index,
+        };
+    });
+    const bbox = bboxForChars(chars);
+
+    return {
+        text,
+        bbox,
+        baseline: y + 8,
+        spans: [
+            {
+                text,
+                bbox,
+                chars,
+                fontSize: 8,
+                fontName: "Helvetica",
+            },
+        ],
+    };
+}
+
 function pageText(lines: TextLine[]): PageText {
     return {
         pageIndex: 0,
@@ -149,6 +179,28 @@ function rotatedKeyValueTableFixture(): { pageText: PageText; edges: Edge[] } {
     return { pageText: pageText(lines), edges: rectGridEdges(xs, ys) };
 }
 
+function denseMixedDrawnGridTableFixture(): { pageText: PageText; edges: Edge[] } {
+    const xs = [20, 80, 140, 200, 250];
+    const ys = [40, 100, 160, 220, 280, 340, 400];
+    const lines: TextLine[] = [];
+    let sequence = 0;
+
+    for (let row = 0; row < ys.length - 1; row += 1) {
+        for (let column = 0; column < xs.length - 1; column += 1) {
+            const vertical = row < 2 || (row === 2 && column < 2);
+            const text = vertical ? `V${row + 1}${column + 1}A` : `H${row + 1}${column + 1}B`;
+            lines.push(
+                vertical
+                    ? verticalLine(text, xs[column]! + 18, ys[row]! + 10, sequence)
+                    : horizontalLine(text, xs[column]! + 4, ys[row]! + 24, sequence)
+            );
+            sequence += text.length;
+        }
+    }
+
+    return { pageText: pageText(lines), edges: rectGridEdges(xs, ys) };
+}
+
 describe("PDF table detection", () => {
     test("uses non-strict drawn edges for rotated table pages in strict mode", () => {
         const fixture = rotatedDrawnTableFixture();
@@ -176,6 +228,19 @@ describe("PDF table detection", () => {
         expect(tables[0]?.markdown).toContain("| Purpose | • first item continued • second item |");
         expect(tables[0]?.markdown).toContain("| Unitsize (ha) |  |");
         expect(tables[0]?.markdown).toContain("| Field-No./ Label |  |");
+    });
+
+    test("uses loose drawn-grid lines in strict mode for dense mixed-orientation tables", () => {
+        const fixture = denseMixedDrawnGridTableFixture();
+        const words = extractWords(fixture.pageText);
+        const tables = detectTables(fixture.pageText, words, fixture.pageText.lines, fixture.edges, "lines_strict");
+
+        expect(tables).toHaveLength(1);
+        expect(tables[0]?.rowCount).toBe(6);
+        expect(tables[0]?.colCount).toBe(4);
+        expect(tables[0]?.markdown).toContain("| V11A | V12A | V13A | V14A |");
+        expect(tables[0]?.markdown).toContain("| V31A | V32A | H33B | H34B |");
+        expect(tables[0]?.markdown).toContain("| H61B | H62B | H63B | H64B |");
     });
 
     test("cleans hyphenated words after merging sparse adjacent columns", () => {
