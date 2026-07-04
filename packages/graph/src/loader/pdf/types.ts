@@ -15,6 +15,7 @@ export type PDFParserOptions = {
 export type PDFOCRRotation = 0 | 90 | 180 | 270;
 export type PDFOCRPageSelection = Pick<PDFPageLike, "index" | "width" | "height"> & {
     ocrRotation?: PDFOCRRotation;
+    ocrRasterScale?: number;
 };
 
 export type PDFPageRasterizer = (content: Uint8Array) => Promise<Uint8Array[]>;

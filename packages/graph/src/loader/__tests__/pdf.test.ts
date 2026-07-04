@@ -412,7 +412,7 @@ function buildRawCMYKImagePDF(): Uint8Array {
     const objects = [
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /ImRaw 5 0 R >> >> /Contents 4 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 800] /Resources << /XObject << /ImRaw 5 0 R >> >> /Contents 4 0 R >>",
         pdfStream(`<< /Length ${content.length} >>`, content),
         pdfStream(
             `<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /FlateDecode /Length ${rawImage.length} >>`,
@@ -430,7 +430,7 @@ function buildAsciiHexJPEGImagePDF(): Uint8Array {
     const objects = [
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /ImRaw 5 0 R >> >> /Contents 4 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 800] /Resources << /XObject << /ImRaw 5 0 R >> >> /Contents 4 0 R >>",
         pdfStream(`<< /Length ${content.length} >>`, content),
         pdfStream(
             `<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ${jpegHex.length} >>`,
@@ -1333,6 +1333,22 @@ describe("PDFLoader", () => {
         expect(fixture.hybrid).not.toContain(":::IMG-");
         expect(generateTextMock).not.toHaveBeenCalled();
         expect(putNamedFileMock).not.toHaveBeenCalled();
+    });
+
+    test("does not describe images outside the visible page region", async () => {
+        const fixture = await buildHybridFixture(async (pdf) => {
+            const pngBytes = Uint8Array.from(Buffer.from(PNG_BASE64, "base64"));
+            const image = pdf.embedPng(pngBytes);
+            const page = pdf.addPage({ size: "letter" });
+
+            page.drawText("Off Page Image", { x: 200, y: 740, size: 22 });
+            page.drawText("Visible paragraph", { x: 60, y: 640, size: 12 });
+            page.drawImage(image, { x: 5000, y: 5000, width: 80, height: 80 });
+        });
+
+        expect(fixture.hybrid).toContain("Visible paragraph");
+        expect(fixture.hybrid).not.toContain("<image id=");
+        expect(generateTextMock).not.toHaveBeenCalled();
     });
 
     test("keeps two-column reading order with a full-width note between column sections", async () => {

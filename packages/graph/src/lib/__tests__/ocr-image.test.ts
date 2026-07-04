@@ -108,6 +108,48 @@ describe("processOCRImages", () => {
         expect(uploadImage).toHaveBeenCalledTimes(1);
     });
 
+    test("keeps image tags when the model times out describing an image", async () => {
+        const timeout = new DOMException("The operation timed out.", "TimeoutError");
+        const describeImage = mock(async () => {
+            throw timeout;
+        });
+        const uploadImage = mock(async (name: string, _content: Uint8Array, storage: { imagePrefix: string }) => ({
+            key: `${storage.imagePrefix}/${name}`,
+        }));
+
+        const output = await processOCRImages(
+            ":::IMG-img-1:::",
+            [{ id: "img-1", type: "image/png", content: new Uint8Array([1]) }],
+            {} as never,
+            { bucket: "bucket", imagePrefix: "graphs/g-1/f-1.pdf/f-1/images" },
+            { describeImage, uploadImage }
+        );
+
+        expect(output).toContain(
+            '<image id="img-1" key="graphs/g-1/f-1.pdf/f-1/images/img-1.png">Image description unavailable: the image model timed out.</image>'
+        );
+        expect(uploadImage).toHaveBeenCalledTimes(1);
+    });
+
+    test("propagates non-timeout image description failures", async () => {
+        const describeImage = mock(async () => {
+            throw new Error("model unavailable");
+        });
+
+        await expect(
+            processOCRImages(
+                ":::IMG-img-1:::",
+                [{ id: "img-1", type: "image/png", content: new Uint8Array([1]) }],
+                {} as never,
+                { bucket: "bucket", imagePrefix: "graphs/g-1/f-1.pdf/f-1/images" },
+                {
+                    describeImage,
+                    uploadImage: mock(async () => ({ key: "unused" })),
+                }
+            )
+        ).rejects.toThrow("model unavailable");
+    });
+
     test("deduplicates different image ids with identical content by checksum", async () => {
         const describeImage = mock(async (image: { id: string }) => `Description for ${image.id}`);
         const uploadImage = mock(async (name: string, _content: Uint8Array, storage: { imagePrefix: string }) => ({
@@ -197,6 +239,22 @@ describe("describeOCRImages", () => {
                 ["img-1", "Description for img-1"],
                 ["img-2", "Description for img-1"],
             ])
+        );
+    });
+
+    test("returns timeout text when an embedded image description times out", async () => {
+        const describeImage = mock(async () => {
+            throw new DOMException("The operation timed out.", "TimeoutError");
+        });
+
+        const descriptions = await describeOCRImages(
+            [{ id: "img-1", type: "image/png", content: new Uint8Array([1]) }],
+            {} as never,
+            { describeImage }
+        );
+
+        expect(descriptions).toEqual(
+            new Map([["img-1", "Image description unavailable: the image model timed out."]])
         );
     });
 });

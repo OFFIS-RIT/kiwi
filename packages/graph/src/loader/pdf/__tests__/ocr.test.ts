@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { DEFAULT_RASTER_SCALE } from "../constants";
-import { getPageOCRRotation, shouldUsePageOCRFallback } from "../document";
+import { extractPDFDocumentFromDocument, getPageOCRRotation, shouldUsePageOCRFallback } from "../document";
 import { extractOCRTextFromPDFPages, getPageRasterScale } from "../ocr";
 import type {
     BoundingBox,
@@ -8,13 +8,20 @@ import type {
     ImageOccurrence,
     PageContentAnalysis,
     PageText,
+    PDFArrayLike,
+    PDFDictLike,
+    PDFNameLike,
     PDFOCRPageSelection,
+    PDFPageLike,
+    PDFStreamLike,
     TextChar,
     TextLine,
 } from "../types";
 
 const TWO_PIXEL_PNG_BASE64 =
     "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQv8BD/kD/YURmXYAAAAASUVORK5CYII=";
+
+const encoder = new TextEncoder();
 
 function pngSize(image: Uint8Array): string {
     const view = new DataView(image.buffer, image.byteOffset, image.byteLength);
@@ -252,6 +259,142 @@ function contentWithImageBox(width: number, height: number): PageContentAnalysis
     };
 }
 
+function fakeImageOnlyPDFPage(): PDFPageLike {
+    const width = 595.28;
+    const height = 841.89;
+    const pageImage = fakePDFStream(Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64")), {
+        Subtype: fakePDFName("Image"),
+    });
+    const resources = fakePDFDict({ XObject: fakePDFDict({ Im1: pageImage }) });
+    const contentStream = fakePDFStream(encoder.encode(`q\n${width} 0 0 ${height} 0 0 cm\n/Im1 Do\nQ\n`));
+
+    return {
+        index: 0,
+        width,
+        height,
+        dict: fakePDFDict({ Contents: fakePDFArray([contentStream]) }),
+        getResources: () => resources,
+        extractText: () => pageText([]),
+    };
+}
+
+function fakePDFStream(data: Uint8Array, values: Record<string, unknown> = {}): PDFStreamLike {
+    return {
+        ...fakePDFDict(values),
+        type: "stream",
+        data,
+        getDecodedData: () => data,
+    };
+}
+
+function fakePDFDict(values: Record<string, unknown>): PDFDictLike {
+    return {
+        type: "dict",
+        get: (key) => values[typeof key === "string" ? key : key.value],
+        getArray: (key) => {
+            const value = values[key];
+            return isPDFArrayLike(value) ? value : undefined;
+        },
+        getDict: (key) => {
+            const value = values[key];
+            return isPDFDictLike(value) ? value : undefined;
+        },
+        getName: (key) => {
+            const value = values[key];
+            return isPDFNameLike(value) ? value : undefined;
+        },
+        getNumber: () => undefined,
+        *[Symbol.iterator]() {
+            for (const [key, value] of Object.entries(values)) {
+                yield [fakePDFName(key), value];
+            }
+        },
+    };
+}
+
+function fakePDFArray(items: unknown[]): PDFArrayLike {
+    return {
+        type: "array",
+        length: items.length,
+        at: (index) => items[index],
+        *[Symbol.iterator]() {
+            yield* items;
+        },
+    };
+}
+
+function fakePDFName(value: string): PDFNameLike {
+    return { type: "name", value };
+}
+
+function getPDFObjectType(value: unknown): unknown {
+    if (typeof value !== "object" || value === null || !("type" in value)) {
+        return undefined;
+    }
+
+    return value.type;
+}
+
+function isPDFArrayLike(value: unknown): value is PDFArrayLike {
+    return getPDFObjectType(value) === "array";
+}
+
+function isPDFDictLike(value: unknown): value is PDFDictLike {
+    const type = getPDFObjectType(value);
+    return type === "dict" || type === "stream";
+}
+
+function isPDFNameLike(value: unknown): value is PDFNameLike {
+    return (
+        getPDFObjectType(value) === "name" &&
+        typeof value === "object" &&
+        value !== null &&
+        "value" in value &&
+        typeof value.value === "string"
+    );
+}
+
+describe("extractPDFDocumentFromDocument OCR fallback selection", () => {
+    test("starts image-only fallback pages at reduced raster scale", async () => {
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+        const rasterizeSelectedPages = mock(
+            async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>
+                new Map(pages.map((page) => [page.index, image] as const))
+        );
+        const transcribePage = mock(async () => ({ text: "Synthetic OCR text", finishReason: "stop" as const }));
+
+        const document = await extractPDFDocumentFromDocument(
+            {
+                getPages: () => [fakeImageOnlyPDFPage()],
+                getObject: (ref) => ref,
+            },
+            {
+                mode: "hybrid",
+                ocrFallback: {
+                    content: new Uint8Array([9]),
+                    model: {} as never,
+                    rasterizeSelectedPages,
+                    transcribePage,
+                },
+            }
+        );
+
+        expect(document.text).toContain("Synthetic OCR text");
+        expect(rasterizeSelectedPages).toHaveBeenCalledTimes(1);
+        expect(rasterizeSelectedPages.mock.calls[0]?.[1]).toEqual([
+            {
+                index: 0,
+                width: 595.28,
+                height: 841.89,
+                ocrRotation: 0,
+                ocrRasterScale: 1,
+            },
+        ]);
+        expect(rasterizeSelectedPages.mock.calls[0]?.[2]).toBe(1);
+        expect(transcribePage).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe("shouldUsePageOCRFallback", () => {
     test("uses full-page OCR for image pages without text", () => {
         expect(shouldUsePageOCRFallback(pageText([]), contentWithImageBox(595.28, 841.89))).toBe(true);
@@ -366,21 +509,30 @@ describe("getPageOCRRotation", () => {
     });
 });
 describe("getPageRasterScale", () => {
-    test("uses the 3.25 default raster scale when the rendered image stays under 3000px", () => {
+    test("uses the 1.5 default raster scale when the rendered image stays under 3000px", () => {
         expect(getPageRasterScale({ width: 595.28, height: 841.89 })).toBe(DEFAULT_RASTER_SCALE);
     });
 
-    test("caps default raster scales at 3000px on the longest edge", () => {
-        expect(getPageRasterScale({ width: 1190.56, height: 1683.78 })).toBeCloseTo(3000 / 1683.78);
+    test("caps normal pages at 3000px on the longest edge", () => {
+        expect(getPageRasterScale({ width: 1000, height: 3000 })).toBeCloseTo(1);
         expect(getPageRasterScale({ width: 3000, height: 1000 })).toBeCloseTo(1);
     });
 
-    test("keeps retry scales relative to the 3.25 default unless they would exceed 3000px", () => {
+    test("limits large-format pages to scale 1 before applying the 3000px cap", () => {
+        expect(getPageRasterScale({ width: 2000, height: 1000 })).toBe(1);
+        expect(getPageRasterScale({ width: 2500, height: 1200 }, DEFAULT_RASTER_SCALE * 1.25)).toBe(1);
+    });
+
+    test("drops very large pages below scale 1 to keep raster output under 3000px", () => {
+        expect(getPageRasterScale({ width: 4000, height: 1000 })).toBeCloseTo(3000 / 4000);
+    });
+
+    test("keeps retry scales relative to the 1.5 default unless they would exceed 3000px", () => {
         expect(getPageRasterScale({ width: 400, height: 600 }, DEFAULT_RASTER_SCALE * 1.25)).toBe(
             DEFAULT_RASTER_SCALE * 1.25
         );
-        expect(getPageRasterScale({ width: 595.28, height: 841.89 }, DEFAULT_RASTER_SCALE * 1.25)).toBeCloseTo(
-            3000 / 841.89
+        expect(getPageRasterScale({ width: 1000, height: 1800 }, DEFAULT_RASTER_SCALE * 1.25)).toBeCloseTo(
+            3000 / 1800
         );
     });
 });
@@ -458,7 +610,96 @@ describe("extractOCRTextFromPDFPages", () => {
         expect(rasterizeSelectedPages.mock.calls.map((call) => call[2])).toEqual([3, 2]);
     });
 
-    test("retries length-limited OCR pages with higher raster scales and rotation", async () => {
+    test("retries requested image-only OCR pages with alternate map scales", async () => {
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+        const rasterizeSelectedPages = mock(
+            async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>
+                new Map(pages.map((page) => [page.index, image] as const))
+        );
+        let attempts = 0;
+        const transcribePage = mock(async () => {
+            attempts += 1;
+            if (attempts === 1) {
+                return { text: "partial low-detail page", finishReason: "length" as const };
+            }
+
+            return { text: "complete low-detail page", finishReason: "stop" as const };
+        });
+
+        const textByPage = await extractOCRTextFromPDFPages(
+            new Uint8Array([9]),
+            [{ index: 0, width: 595.28, height: 841.89, ocrRasterScale: 1 }],
+            {} as never,
+            {
+                rasterizeSelectedPages,
+                transcribePage,
+            }
+        );
+
+        expect(textByPage).toEqual(new Map([[0, "complete low-detail page"]]));
+        expect(transcribePage).toHaveBeenCalledTimes(2);
+        expect(rasterizeSelectedPages.mock.calls.map((call) => call[2])).toEqual([1, 1.5]);
+    });
+
+    test("treats a timeout-like first transcription error as retryable for image-only OCR pages", async () => {
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+        const rasterizeSelectedPages = mock(
+            async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>
+                new Map(pages.map((page) => [page.index, image] as const))
+        );
+        let attempts = 0;
+        const transcribePage = mock(async () => {
+            attempts += 1;
+            if (attempts === 1) {
+                const timeout = new Error("model request timeout after 60000ms");
+                timeout.name = "TimeoutError";
+                throw timeout;
+            }
+
+            return { text: "complete after timeout retry", finishReason: "stop" as const };
+        });
+
+        const textByPage = await extractOCRTextFromPDFPages(
+            new Uint8Array([9]),
+            [{ index: 0, width: 595.28, height: 841.89, ocrRasterScale: 1 }],
+            {} as never,
+            {
+                rasterizeSelectedPages,
+                transcribePage,
+            }
+        );
+
+        expect(textByPage).toEqual(new Map([[0, "complete after timeout retry"]]));
+        expect(transcribePage).toHaveBeenCalledTimes(2);
+        expect(rasterizeSelectedPages.mock.calls.map((call) => call[2])).toEqual([1, 1.5]);
+    });
+
+    test("propagates ordinary transcription errors instead of treating them as retryable OCR length limits", async () => {
+        const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
+        const rasterizeSelectedPages = mock(
+            async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>
+                new Map(pages.map((page) => [page.index, image] as const))
+        );
+        const transcribePage = mock(async () => {
+            throw new Error("transcribe failed");
+        });
+
+        await expect(
+            extractOCRTextFromPDFPages(
+                new Uint8Array([9]),
+                [{ index: 0, width: 595.28, height: 841.89, ocrRasterScale: 1 }],
+                {} as never,
+                {
+                    rasterizeSelectedPages,
+                    transcribePage,
+                }
+            )
+        ).rejects.toThrow("transcribe failed");
+        expect(transcribePage).toHaveBeenCalledTimes(1);
+        expect(rasterizeSelectedPages.mock.calls.map((call) => call[2])).toEqual([1]);
+    });
+
+    test("retries non-rotated OCR pages without ocrRasterScale with default higher scales and rotation", async () => {
         const image = Uint8Array.from(Buffer.from(TWO_PIXEL_PNG_BASE64, "base64"));
         const rasterizeSelectedPages = mock(
             async (_content: Uint8Array, pages: PDFOCRPageSelection[], _scale?: number) =>

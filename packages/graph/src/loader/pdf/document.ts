@@ -32,6 +32,8 @@ import {
 import { applyActualTextToPageText, getLineText, inferLineDirection, tidyPageText } from "./text";
 import { repairPageTextLoneSurrogates } from "./unicode";
 
+const IMAGE_ONLY_OCR_RASTER_SCALE = 1;
+
 type PDFHybridOCRFallbackOptions = Pick<FullOCRDeps, "rasterizeSelectedPages" | "transcribePage"> & {
     content: Uint8Array;
     model: LanguageModelV3;
@@ -123,6 +125,7 @@ async function extractPDFHybridDocumentFromDocument(
                       width: entry.page.width,
                       height: entry.page.height,
                       ocrRotation: entry.ocrRotation,
+                      ocrRasterScale: getInitialOCRFallbackRasterScale(entry),
                   })),
               options.ocrFallback.model,
               options.ocrFallback
@@ -144,7 +147,7 @@ async function extractPDFHybridDocumentFromDocument(
             ),
         };
     });
-    const referencedImages = collectReferencedImages(renderedPages);
+    const referencedImages = collectReferencedImages(pdf, renderedPages);
     const imageDescriptions =
         referencedImages.length > 0 && options.ocrFallback
             ? await describeOCRImages(referencedImages, options.ocrFallback.model)
@@ -209,6 +212,20 @@ function preparePages(pdf: PDFDocumentLike, allowOCRFallback: boolean): Prepared
     return pages;
 }
 
+function getInitialOCRFallbackRasterScale(entry: PreparedPage): number | undefined {
+    if (entry.ocrRotation !== 0) {
+        return undefined;
+    }
+
+    const textLines = entry.pageText.lines.map(getLineText).filter((line) => line.length > 0);
+    const characterCount = textLines.reduce((total, line) => total + line.length, 0);
+    if (textLines.length <= 2 && characterCount < 80 && imageAreaRatio(entry.pageText, entry.content) >= 0.5) {
+        return IMAGE_ONLY_OCR_RASTER_SCALE;
+    }
+
+    return undefined;
+}
+
 function preparePageText(pdf: PDFDocumentLike, page: PDFPageLike, content?: PageContentAnalysis) {
     const pageContent = content ?? analyzePageContent(pdf, page, () => "ignored-image");
     const extractedText = repairPageTextLoneSurrogates(page.extractText());
@@ -217,15 +234,17 @@ function preparePageText(pdf: PDFDocumentLike, page: PDFPageLike, content?: Page
 }
 
 function collectReferencedImages(
+    pdf: PDFDocumentLike,
     pages: Array<{ entry: PreparedPage; blocks: RenderBlock[] }>
 ): Array<PDFOCRImage & Pick<ImageOccurrence, "bbox" | "pageIndex">> {
     const images: Array<PDFOCRImage & Pick<ImageOccurrence, "bbox" | "pageIndex">> = [];
     const seen = new Set<string>();
 
     for (const { entry, blocks } of pages) {
+        const geometry = getPDFPageGeometry(pdf, entry.page);
         const referencedImageIds = extractReferencedImageIds(blocks.map((block) => block.text).join("\n\n"));
         for (const image of entry.content.images) {
-            if (!referencedImageIds.has(image.id) || seen.has(image.id)) {
+            if (!referencedImageIds.has(image.id) || seen.has(image.id) || !regionForBoundingBox("image", geometry, image.bbox)) {
                 continue;
             }
 

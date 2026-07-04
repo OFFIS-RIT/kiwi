@@ -16,10 +16,14 @@ import type {
     PDFPageTranscription,
 } from "./types";
 const MAX_RASTER_DIMENSION_PIXELS = 3000;
+const LARGE_PAGE_LONG_EDGE_POINTS = 2000;
+const LARGE_PAGE_MAX_RASTER_SCALE = 1;
 const OCR_RETRY_SCALE_MULTIPLIERS = [1.25, 1.5] as const;
 const ROTATED_OCR_RASTER_SCALE = 3;
 const ROTATED_OCR_RETRY_SCALES = [2] as const;
+const IMAGE_ONLY_OCR_RETRY_SCALES = [1.5, 0.5, 0.35] as const;
 const OCR_RETRY_ROTATION: PDFOCRRotation = 90;
+const OCR_TRANSCRIBE_TIMEOUT_MS = 60_000;
 
 export async function extractFullOCRTextFromPDF(
     content: ArrayBuffer,
@@ -123,10 +127,14 @@ async function rasterizeInitialOCRPages(
 }
 
 function getInitialOCRRasterScale(page: PDFOCRPageSelection): number {
-    return hasOCRRotation(page) ? ROTATED_OCR_RASTER_SCALE : DEFAULT_RASTER_SCALE;
+    return page.ocrRasterScale ?? (hasOCRRotation(page) ? ROTATED_OCR_RASTER_SCALE : DEFAULT_RASTER_SCALE);
 }
 
 function getRetryOCRRasterScales(page: PDFOCRPageSelection): number[] {
+    if (page.ocrRasterScale !== undefined) {
+        return IMAGE_ONLY_OCR_RETRY_SCALES.filter((scale) => scale !== page.ocrRasterScale);
+    }
+
     if (hasOCRRotation(page)) {
         return [...ROTATED_OCR_RETRY_SCALES];
     }
@@ -206,7 +214,15 @@ async function transcribePageImage(
     transcribePage: NonNullable<FullOCRDeps["transcribePage"]>
 ): Promise<PDFPageTranscription> {
     const pageImage = rotation ? rotatePNG(image, rotation) : image;
-    return normalizePageTranscription(await transcribePage(pageImage, model));
+    try {
+        return normalizePageTranscription(await transcribePage(pageImage, model));
+    } catch (error) {
+        if (isOCRTimeoutError(error)) {
+            return { text: "", finishReason: "length" };
+        }
+
+        throw error;
+    }
 }
 
 function addOCRRotation(rotation: PDFOCRRotation | undefined, degrees: PDFOCRRotation): PDFOCRRotation {
@@ -215,6 +231,21 @@ function addOCRRotation(rotation: PDFOCRRotation | undefined, degrees: PDFOCRRot
 
 function normalizePageTranscription(transcription: string | PDFPageTranscription): PDFPageTranscription {
     return typeof transcription === "string" ? { text: transcription } : transcription;
+}
+
+function isOCRTimeoutError(error: unknown): boolean {
+    if (typeof error !== "object" || error === null) {
+        return false;
+    }
+
+    const candidate = error as { name?: unknown; message?: unknown };
+    const name = typeof candidate.name === "string" ? candidate.name : "";
+    if (name === "AbortError" || name === "TimeoutError") {
+        return true;
+    }
+
+    const message = typeof candidate.message === "string" ? candidate.message.toLowerCase() : "";
+    return message.includes("timeout") || message.includes("aborted");
 }
 
 export async function resolveRasterScale(content: Uint8Array): Promise<number> {
@@ -237,7 +268,8 @@ export function getPageRasterScale(
         return Math.min(desiredScale, DEFAULT_RASTER_SCALE);
     }
 
-    return Math.min(desiredScale, MAX_RASTER_DIMENSION_PIXELS / longEdge);
+    const largePageScale = longEdge >= LARGE_PAGE_LONG_EDGE_POINTS ? LARGE_PAGE_MAX_RASTER_SCALE : desiredScale;
+    return Math.min(desiredScale, largePageScale, MAX_RASTER_DIMENSION_PIXELS / longEdge);
 }
 
 export async function defaultTranscribePage(image: Uint8Array, model: LanguageModelV3): Promise<PDFPageTranscription> {
@@ -247,6 +279,7 @@ export async function defaultTranscribePage(image: Uint8Array, model: LanguageMo
             model,
             system: transcribePrompt,
             temperature: 0,
+            timeout: OCR_TRANSCRIBE_TIMEOUT_MS,
             messages: [
                 {
                     role: "user",

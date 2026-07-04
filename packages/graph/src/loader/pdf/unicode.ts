@@ -1,6 +1,39 @@
 import type { PageText } from "./types";
 
 export const UNICODE_REPLACEMENT_CHARACTER = "\uFFFD";
+const PRINTABLE_SINGLE_BYTE_START = 0x20;
+const PRINTABLE_ASCII_END = 0x7e;
+const PRINTABLE_LATIN1_START = 0xa0;
+const PRINTABLE_LATIN1_END = 0xff;
+const PRINTABLE_WINDOWS_1252_CHARS: Record<number, string> = {
+    0x80: "€",
+    0x82: "‚",
+    0x83: "ƒ",
+    0x84: "„",
+    0x85: "…",
+    0x86: "†",
+    0x87: "‡",
+    0x88: "ˆ",
+    0x89: "‰",
+    0x8a: "Š",
+    0x8b: "‹",
+    0x8c: "Œ",
+    0x8e: "Ž",
+    0x91: "‘",
+    0x92: "’",
+    0x93: "“",
+    0x94: "”",
+    0x95: "•",
+    0x96: "–",
+    0x97: "—",
+    0x98: "˜",
+    0x99: "™",
+    0x9a: "š",
+    0x9b: "›",
+    0x9c: "œ",
+    0x9e: "ž",
+    0x9f: "Ÿ",
+};
 
 export function hasLoneSurrogate(value: string): boolean {
     for (let index = 0; index < value.length; index += 1) {
@@ -54,17 +87,58 @@ export function repairLoneSurrogates(value: string): string {
     return repaired ?? value;
 }
 
+function repairPDFTextEncodingArtifacts(value: string): string {
+    const surrogateRepaired = repairLoneSurrogates(value);
+    let repaired: string | null = null;
+
+    for (let index = 0; index < surrogateRepaired.length; index += 1) {
+        const code = surrogateRepaired.charCodeAt(index);
+        const highByte = code >> 8;
+        const lowByte = code & 0xff;
+        const highByteText = decodePrintableSingleByteText(highByte);
+        const lowByteText = decodePrintableSingleByteText(lowByte);
+        if (
+            code >= 0x3000 &&
+            code !== UNICODE_REPLACEMENT_CHARACTER.charCodeAt(0) &&
+            (code < 0xd800 || code > 0xdfff) &&
+            highByteText !== null &&
+            lowByteText !== null
+        ) {
+            repaired ??= surrogateRepaired.slice(0, index);
+            repaired += highByteText + lowByteText;
+            continue;
+        }
+
+        if (repaired !== null) {
+            repaired += surrogateRepaired[index];
+        }
+    }
+
+    return repaired ?? surrogateRepaired;
+}
+
+function decodePrintableSingleByteText(byte: number): string | null {
+    if (
+        (byte >= PRINTABLE_SINGLE_BYTE_START && byte <= PRINTABLE_ASCII_END) ||
+        (byte >= PRINTABLE_LATIN1_START && byte <= PRINTABLE_LATIN1_END)
+    ) {
+        return String.fromCharCode(byte);
+    }
+
+    return PRINTABLE_WINDOWS_1252_CHARS[byte] ?? null;
+}
+
 export function repairPageTextLoneSurrogates(pageText: PageText): PageText {
     let changed = false;
-    const text = repairLoneSurrogates(pageText.text);
+    const text = repairPDFTextEncodingArtifacts(pageText.text);
     const lines = pageText.lines.map((line) => {
         let lineChanged = false;
-        const lineText = repairLoneSurrogates(line.text);
+        const lineText = repairPDFTextEncodingArtifacts(line.text);
         const spans = line.spans.map((span) => {
             let spanChanged = false;
-            const spanText = repairLoneSurrogates(span.text);
+            const spanText = repairPDFTextEncodingArtifacts(span.text);
             const chars = span.chars.map((char) => {
-                const repaired = repairLoneSurrogates(char.char);
+                const repaired = repairPDFTextEncodingArtifacts(char.char);
                 if (repaired === char.char) {
                     return char;
                 }

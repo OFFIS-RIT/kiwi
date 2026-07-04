@@ -23,6 +23,8 @@ type OCRImageDeps = {
 
 const IMAGE_FENCE_PATTERN = /:::IMG-([^:]+):::/g;
 const DEFAULT_IMAGE_BATCH_SIZE = 64;
+const IMAGE_DESCRIPTION_TIMEOUT_MS = 15_000;
+const IMAGE_DESCRIPTION_TIMEOUT_TEXT = "Image description unavailable: the image model timed out.";
 
 export async function describeOCRImages(
     images: OCRImageAsset[],
@@ -51,7 +53,7 @@ export async function describeOCRImages(
         const processedImages = await Promise.all(
             batch.map(async ({ checksum, image }) => ({
                 checksum,
-                description: (await describeImage(image, model)).trim(),
+                description: await describeImageWithTimeoutFallback(image, model, describeImage),
             }))
         );
 
@@ -137,7 +139,7 @@ export async function processOCRImages(
         const batch = uniqueImages.slice(index, index + batchSize);
         const processedImages = await Promise.all(
             batch.map(async ({ checksum, image }) => {
-                const description = (await describeImage(image, model)).trim();
+                const description = await describeImageWithTimeoutFallback(image, model, describeImage);
                 const extension = getExtensionForMimeType(image.type);
                 const uploaded = await uploadImage(`${image.id}.${extension}`, image.content, storage);
 
@@ -184,6 +186,22 @@ function getImageBatchSize(): number {
     return !Number.isFinite(value) || value < 1 ? DEFAULT_IMAGE_BATCH_SIZE : Math.floor(value);
 }
 
+async function describeImageWithTimeoutFallback(
+    image: OCRImageAsset,
+    model: LanguageModelV3,
+    describeImage: NonNullable<OCRImageDeps["describeImage"]>
+): Promise<string> {
+    try {
+        return (await describeImage(image, model)).trim();
+    } catch (error) {
+        if (isImageDescriptionTimeoutError(error)) {
+            return IMAGE_DESCRIPTION_TIMEOUT_TEXT;
+        }
+
+        throw error;
+    }
+}
+
 async function defaultDescribeImage(image: OCRImageAsset, model: LanguageModelV3): Promise<string> {
     const mimeType = image.type || "application/octet-stream";
     const base64 = Buffer.from(image.content).toString("base64");
@@ -192,6 +210,7 @@ async function defaultDescribeImage(image: OCRImageAsset, model: LanguageModelV3
             model,
             system: embeddedImagePrompt,
             temperature: 0.1,
+            timeout: IMAGE_DESCRIPTION_TIMEOUT_MS,
             messages: [
                 {
                     role: "user",
@@ -208,6 +227,22 @@ async function defaultDescribeImage(image: OCRImageAsset, model: LanguageModelV3
 
     return text;
 }
+
+function isImageDescriptionTimeoutError(error: unknown): boolean {
+    if (typeof error !== "object" || error === null) {
+        return false;
+    }
+
+    const candidate = error as { name?: unknown; message?: unknown };
+    const name = typeof candidate.name === "string" ? candidate.name : "";
+    if (name === "AbortError" || name === "TimeoutError") {
+        return true;
+    }
+
+    const message = typeof candidate.message === "string" ? candidate.message.toLowerCase() : "";
+    return message.includes("timeout") || message.includes("timed out") || message.includes("aborted");
+}
+
 
 function checksumImageContent(content: Uint8Array): string {
     return createHash("sha256").update(content).digest("hex");

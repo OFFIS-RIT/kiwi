@@ -337,12 +337,50 @@ describe("PDF text reconstruction", () => {
         expect(reconstructTableCellText(chars)).toBe("size (ha)");
     });
 
+    test("expands packed printable ASCII pairs before text consumers see CJK-like artifacts", () => {
+        const packedAsciiPair = String.fromCharCode(0x4142);
+        const line = textLine([textChar(packedAsciiPair, 10, 0)]);
+        const repaired = repairPageTextLoneSurrogates(pageText(line));
+
+        expect(repaired.text).toBe("AB");
+        expect(repaired.lines[0]?.text).toBe("AB");
+        expect(repaired.lines[0]?.spans[0]?.text).toBe("AB");
+        expect(repaired.lines[0]?.spans[0]?.chars.map((char) => char.char)).toEqual(["AB"]);
+        expect(repaired.text).not.toContain(packedAsciiPair);
+    });
+
+    test("expands packed printable Latin-1 pairs before text consumers see CJK-like artifacts", () => {
+        const packedLatin1Pair = String.fromCharCode(0x46f6);
+        const line = textLine([textChar(packedLatin1Pair, 10, 0)]);
+        const repaired = repairPageTextLoneSurrogates(pageText(line));
+
+        expect(repaired.text).toBe("Fö");
+        expect(repaired.lines[0]?.text).toBe("Fö");
+        expect(repaired.lines[0]?.spans[0]?.text).toBe("Fö");
+        expect(repaired.lines[0]?.spans[0]?.chars.map((char) => char.char)).toEqual(["Fö"]);
+        expect(repaired.text).not.toContain(packedLatin1Pair);
+    });
+
+    test("expands packed printable Windows-1252 pairs before text consumers see CJK-like artifacts", () => {
+        const packedWindows1252Pair = String.fromCharCode(0x6793);
+        const line = textLine([textChar(packedWindows1252Pair, 10, 0)]);
+        const repaired = repairPageTextLoneSurrogates(pageText(line));
+
+        expect(repaired.text).toBe("g“");
+        expect(repaired.lines[0]?.text).toBe("g“");
+        expect(repaired.lines[0]?.spans[0]?.text).toBe("g“");
+        expect(repaired.lines[0]?.spans[0]?.chars.map((char) => char.char)).toEqual(["g“"]);
+        expect(repaired.text).not.toContain(packedWindows1252Pair);
+    });
+
     test("repairs lone surrogates without changing valid pairs", () => {
         const emoji = "😀";
         const line = textLine([textChar("\udf65", 10, 0), textChar(emoji, 20, 1)]);
         const repaired = repairPageTextLoneSurrogates({ ...pageText(line), text: `A\udf65${emoji}` });
 
         expect(repaired.text).toBe(`A�${emoji}`);
+        expect(repaired.lines[0]?.text).toBe(`�${emoji}`);
+        expect(repaired.lines[0]?.spans[0]?.text).toBe(`�${emoji}`);
         expect(repaired.lines[0]?.spans[0]?.chars.map((char) => char.char)).toEqual(["�", emoji]);
     });
 
