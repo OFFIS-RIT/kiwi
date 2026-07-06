@@ -22,7 +22,7 @@
     "devDependencies": {
         "@types/bun": "catalog:",
         "dotenv-cli": "^11.0.0",
-        "drizzle-kit": "1.0.0-rc.3",
+        "drizzle-kit": "1.0.0-rc.4",
         "oxfmt": "^0.54.0",
         "oxlint": "^1.69.0",
         "oxlint-tsgolint": "^0.23.0",
