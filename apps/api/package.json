@@ -28,7 +28,7 @@
         "better-auth-credentials-plugin": "catalog:",
         "better-result": "catalog:",
         "drizzle-orm": "catalog:",
-        "elysia": "1.4.28",
+        "elysia": "1.4.29",
         "ldap-authentication": "4.0.4",
         "openworkflow": "catalog:",
         "ulid": "^3.0.2",
