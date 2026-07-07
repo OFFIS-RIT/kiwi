@@ -23,7 +23,7 @@ const ROTATED_OCR_RASTER_SCALE = 3;
 const ROTATED_OCR_RETRY_SCALES = [2] as const;
 const IMAGE_ONLY_OCR_RETRY_SCALES = [1.5, 0.5, 0.35] as const;
 const OCR_RETRY_ROTATION: PDFOCRRotation = 90;
-const OCR_TRANSCRIBE_TIMEOUT_MS = 60_000;
+const OCR_TRANSCRIBE_TIMEOUT_MS = 600_000;
 
 export async function extractFullOCRTextFromPDF(
     content: ArrayBuffer,
@@ -278,7 +278,7 @@ export async function defaultTranscribePage(image: Uint8Array, model: LanguageMo
         generateText({
             model,
             system: transcribePrompt,
-            temperature: 0,
+            temperature: 0.3,
             timeout: OCR_TRANSCRIBE_TIMEOUT_MS,
             messages: [
                 {
