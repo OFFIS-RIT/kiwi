@@ -41,18 +41,24 @@ import { getFileTypeProcessingConfig } from "../lib/file-type-config";
 import { toTextUnitRows } from "../lib/text-unit-rows";
 import { requireReadableContentText } from "../lib/readable-text";
 import { classifyFileProcessError } from "../lib/file-process-error";
+import {
+    isTerminalWorkflowFailure,
+    isWorkflowControlSignal,
+    settledStepFailures,
+    toWorkflowError,
+} from "../lib/workflow-errors";
 
 const FILE_DELETED = "__file_deleted__" as const;
 const NO_RETRY = { maximumAttempts: 1 } as const;
+// Mirrors the process-file workflow retry policy so a persistently failing
+// step exhausts after 3 attempts and the file is marked failed.
+const FILE_STEP_RETRY = {
+    initialInterval: "1s",
+    backoffCoefficient: 2,
+    maximumInterval: "30s",
+    maximumAttempts: 3,
+} as const;
 const PROCESS_UNIT_BATCH_SIZE = 100;
-
-function workflowError(error: unknown) {
-    if (error instanceof Error) {
-        return new Error(error.message, { cause: error });
-    }
-
-    return new Error("Workflow failed", { cause: error });
-}
 
 async function updateFileProcessingState(
     fileId: string,
@@ -126,7 +132,8 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
                 })
             )
         );
-        if (fileResults.length > 0 && fileResults.every((result) => result.status === "rejected")) {
+        const fileFailures = settledStepFailures(fileResults);
+        if (fileResults.length > 0 && fileFailures.length === fileResults.length) {
             throw new Error(`All ${fileResults.length} file processing workflows failed`);
         }
 
@@ -234,7 +241,11 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             );
         }
 
-        await Promise.all(groupPromises);
+        const groupResults = await Promise.allSettled(groupPromises);
+        const [firstGroupFailure] = settledStepFailures(groupResults);
+        if (firstGroupFailure !== undefined) {
+            throw toWorkflowError(firstGroupFailure);
+        }
 
         await step.run({ name: "finalize-project-status" }, async () => {
             await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
@@ -247,7 +258,11 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             }
         });
     } catch (error) {
-        if (run.retryTerminal) {
+        if (isWorkflowControlSignal(error)) {
+            throw error;
+        }
+
+        if (isTerminalWorkflowFailure(error, run)) {
             await step.run({ name: "mark-project-failed", retryPolicy: NO_RETRY }, async () => {
                 await db.update(graphTable).set({ state: "ready" }).where(eq(graphTable.id, input.graphId));
 
@@ -260,7 +275,7 @@ export const processFiles = defineWorkflow(processFilesSpec, async ({ input, ste
             });
         }
 
-        throw workflowError(error);
+        throw toWorkflowError(error);
     }
 });
 
@@ -305,7 +320,7 @@ export const processFile = defineWorkflow(
                 fileKey: fileData.key,
             });
 
-            const baseFile = await step.run({ name: "preprocess-file" }, async () => {
+            const baseFile = await step.run({ name: "preprocess-file", retryPolicy: FILE_STEP_RETRY }, async () => {
                 if (await stopIfFileDeleted(input.fileId)) {
                     return FILE_DELETED;
                 }
@@ -397,7 +412,7 @@ export const processFile = defineWorkflow(
                 return;
             }
 
-            const metadataResult = await step.run({ name: "metadata" }, async () => {
+            const metadataResult = await step.run({ name: "metadata", retryPolicy: FILE_STEP_RETRY }, async () => {
                 if (await stopIfFileDeleted(input.fileId)) {
                     return FILE_DELETED;
                 }
@@ -419,7 +434,7 @@ export const processFile = defineWorkflow(
                 return;
             }
 
-            const unitsResult = await step.run({ name: "build-units" }, async () => {
+            const unitsResult = await step.run({ name: "build-units", retryPolicy: FILE_STEP_RETRY }, async () => {
                 if (await stopIfFileDeleted(input.fileId)) {
                     return FILE_DELETED;
                 }
@@ -472,7 +487,7 @@ export const processFile = defineWorkflow(
                 return;
             }
 
-            const graphResult = await step.run({ name: "build-graph" }, async () => {
+            const graphResult = await step.run({ name: "build-graph", retryPolicy: FILE_STEP_RETRY }, async () => {
                 if (await stopIfFileDeleted(input.fileId)) {
                     return FILE_DELETED;
                 }
@@ -516,7 +531,7 @@ export const processFile = defineWorkflow(
                 return;
             }
 
-            const saveGraphResult = await step.run({ name: "save-graph" }, async () => {
+            const saveGraphResult = await step.run({ name: "save-graph", retryPolicy: FILE_STEP_RETRY }, async () => {
                 if (await stopIfFileDeleted(input.fileId)) {
                     return FILE_DELETED;
                 }
@@ -921,13 +936,17 @@ export const processFile = defineWorkflow(
 
             return saveGraphResult.summary;
         } catch (error) {
-            if (run.retryTerminal) {
+            if (isWorkflowControlSignal(error)) {
+                throw error;
+            }
+
+            if (isTerminalWorkflowFailure(error, run)) {
                 await updateFileProcessingState(input.fileId, "failed", "failed", classifyFileProcessError(error));
             } else {
                 await updateFileProcessingState(input.fileId, "pending", "processing", null);
             }
 
-            throw workflowError(error);
+            throw toWorkflowError(error);
         }
     }
 );

@@ -10,6 +10,7 @@ import { textArray } from "../lib/sql";
 import { deleteFileSpec } from "./delete-file-spec";
 import { deleteGraphFileArtifacts } from "../lib/derived-files";
 import { updateDescriptionsSpec } from "./update-descriptions-spec";
+import { settledStepFailures, toWorkflowError } from "../lib/workflow-errors";
 
 export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, step }) => {
     const [fileData] = await step.run({ name: "get-file-data" }, async () => {
@@ -123,7 +124,11 @@ export const deleteProjectFile = defineWorkflow(deleteFileSpec, async ({ input, 
             ),
         ];
 
-        await Promise.all(descriptionWorkflowRuns);
+        const descriptionResults = await Promise.allSettled(descriptionWorkflowRuns);
+        const [firstDescriptionFailure] = settledStepFailures(descriptionResults);
+        if (firstDescriptionFailure !== undefined) {
+            throw toWorkflowError(firstDescriptionFailure);
+        }
     }
 
     await step.run({ name: "delete-s3-file" }, async () => {

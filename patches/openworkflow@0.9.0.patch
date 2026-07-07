@@ -1,5 +1,5 @@
 diff --git a/dist/core/workflow-function.d.ts b/dist/core/workflow-function.d.ts
-index efd435287f73953e8549b83f8aaece0dde859aa9..7c8f94e5915a59d2c99847fb70545680d2aee9f2 100644
+index efd435287f73953e8549b83f8aaece0dde859aa9..546b2b707a1fdbb92ca524fef265b831363472c8 100644
 --- a/dist/core/workflow-function.d.ts
 +++ b/dist/core/workflow-function.d.ts
 @@ -68,7 +68,18 @@ export interface StepApi {
@@ -23,7 +23,7 @@ index efd435287f73953e8549b83f8aaece0dde859aa9..7c8f94e5915a59d2c99847fb70545680
   * Params passed to a workflow function for the user to use when defining
   * steps.
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 2d59da6f5a0889f97858ba401a0a40605e6847c0..9c13b56d66cdb147fae208548bfc3cda12e6f155 100644
+index 2d59da6f5a0889f97858ba401a0a40605e6847c0..3fb99e821eb27b6e4956e797ad3d7769144e31fa 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
 @@ -1,7 +1,7 @@
@@ -36,49 +36,71 @@ index 2d59da6f5a0889f97858ba401a0a40605e6847c0..9c13b56d66cdb147fae208548bfc3cda
  export type { WorkerOptions } from "./worker/worker.js";
  export { Worker } from "./worker/worker.js";
 diff --git a/dist/worker/execution.d.ts b/dist/worker/execution.d.ts
-index 05a2acdd4a43cd2ac389fc5a9eb0e7313e0543dd..c4e81fd2a4bb2b092b2c985cc87c9af94e931c68 100644
+index 05a2acdd4a43cd2ac389fc5a9eb0e7313e0543dd..b58fbbd4719297a65f8fc431eebff17265ef559e 100644
 --- a/dist/worker/execution.d.ts
 +++ b/dist/worker/execution.d.ts
-@@ -5,6 +5,8 @@ import type { WorkflowFunction } from "../core/workflow-function.js";
+@@ -5,7 +5,11 @@ import type { WorkflowFunction } from "../core/workflow-function.js";
  import { type WorkflowRun } from "../core/workflow-run.js";
  interface ExecutionFenceController {
      deactivate(): void;
 +    parkOnSleep(signal: Error): void;
 +    readonly sleepSignal: Error | null;
      isActive(): boolean;
++    isParked(): boolean;
++    canPersistStepOutcome(): boolean;
      assertActive(): void;
  }
+ /** Maximum number of step attempts allowed for a single workflow run. */
 diff --git a/dist/worker/execution.js b/dist/worker/execution.js
-index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514f882a7a7 100644
+index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..aafa36aa7c547aade27eaae47ddbe0133826c16a 100644
 --- a/dist/worker/execution.js
 +++ b/dist/worker/execution.js
-@@ -30,14 +30,25 @@ class StaleExecutionBranchError extends Error {
+@@ -29,15 +29,44 @@ class StaleExecutionBranchError extends Error {
+  * writing new step attempts after execution is parked/finalized.
   */
  class ExecutionFence {
++    // active: no wait signal raised yet, run owned, everything allowed.
++    // parked: a wait signal was raised but the run is still owned by this
++    //   worker; in-flight parallel branches may still persist their outcome,
++    //   but no new step attempts may be created.
++    // deactivated (neither active nor parked): the run has been released or
++    //   finalized; no writes may happen from this execution pass.
      active = true;
++    parked = false;
 +    sleepSignal = null;
      deactivate() {
          this.active = false;
-     }
++        this.parked = false;
++    }
 +    parkOnSleep(signal) {
++        if (!this.active && !this.parked) {
++            return;
++        }
 +        const current = this.sleepSignal;
 +        if (!current || signal.resumeAt.getTime() < current.resumeAt.getTime()) {
 +            this.sleepSignal = signal;
 +        }
 +        this.active = false;
-+    }
++        this.parked = true;
+     }
      isActive() {
          return this.active;
      }
++    isParked() {
++        return this.parked;
++    }
++    canPersistStepOutcome() {
++        return this.active || this.parked;
++    }
      assertActive() {
          if (!this.active) {
-+            if (this.sleepSignal) {
++            if (this.parked && this.sleepSignal) {
 +                throw this.sleepSignal;
 +            }
              throw new StaleExecutionBranchError();
          }
      }
-@@ -49,6 +60,9 @@ class StepError extends Error {
+@@ -49,6 +78,9 @@ class StepError extends Error {
      stepName;
      stepFailedAttempts;
      retryPolicy;
@@ -88,7 +110,7 @@ index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514
      originalError;
      constructor(options) {
          const serialized = serializeError(options.error);
-@@ -57,6 +71,10 @@ class StepError extends Error {
+@@ -57,6 +89,10 @@ class StepError extends Error {
          this.stepName = options.stepName;
          this.stepFailedAttempts = options.stepFailedAttempts;
          this.retryPolicy = options.retryPolicy;
@@ -99,7 +121,7 @@ index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514
          this.originalError = options.error;
      }
  }
-@@ -488,7 +506,9 @@ class StepExecutor {
+@@ -488,7 +524,9 @@ class StepExecutor {
          // throw sleep signal to trigger postponement
          // we do not mark the step as completed here; it will be updated
          // when the workflow resumes
@@ -110,7 +132,7 @@ index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514
      }
      // ---- step.runWorkflow -----------------------------------------------
      async runWorkflow(spec, input, options) {
-@@ -602,7 +622,9 @@ class StepExecutor {
+@@ -602,7 +640,9 @@ class StepExecutor {
          const resumeAt = timeoutAt && Number.isFinite(timeoutAt.getTime())
              ? timeoutAt
              : defaultWaitTimeoutAt(workflowAttempt.createdAt);
@@ -121,7 +143,51 @@ index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514
      }
      /**
       * Create (or dedupe) the child workflow run and persist the linkage on the
-@@ -885,6 +907,10 @@ export async function executeWorkflow(params) {
+@@ -651,7 +691,10 @@ class StepExecutor {
+      * @param retryPolicy - Retry policy for this failure
+      */
+     async failStepWithError(stepName, stepAttemptId, error, retryPolicy) {
+-        if (!this.executionFence.isActive()) {
++        // While parked (a sibling raised a wait signal) the run is still owned
++        // by this worker, so the failure must be persisted; otherwise the
++        // attempt would be stranded in 'running' and never retried.
++        if (!this.executionFence.canPersistStepOutcome()) {
+             throw new StaleExecutionBranchError();
+         }
+         this.runningByStepName.delete(stepName);
+@@ -665,7 +708,7 @@ class StepExecutor {
+             });
+         }
+         catch (stepFailError) {
+-            if (!this.executionFence.isActive()) {
++            if (!this.executionFence.canPersistStepOutcome()) {
+                 throw new StaleExecutionBranchError();
+             }
+             throw stepFailError;
+@@ -684,7 +727,10 @@ class StepExecutor {
+         if (error instanceof StaleExecutionBranchError) {
+             throw error;
+         }
+-        if (!this.executionFence.isActive()) {
++        if (error instanceof SleepSignal) {
++            throw error;
++        }
++        if (!this.executionFence.canPersistStepOutcome()) {
+             throw new StaleExecutionBranchError();
+         }
+         return await this.failStepWithError(stepName, stepAttemptId, error, TERMINAL_STEP_RETRY_POLICY);
+@@ -790,7 +836,9 @@ class StepExecutor {
+         if (Date.now() >= timeoutAt.getTime()) {
+             return await this.completeSignalWaitStep(attempt, null);
+         }
+-        throw new SleepSignal(this.resolveEarliestRunningWaitResumeAt(timeoutAt));
++        const signal = new SleepSignal(this.resolveEarliestRunningWaitResumeAt(timeoutAt));
++        this.executionFence.parkOnSleep(signal);
++        throw signal;
+     }
+     /**
+      * Complete a signal-wait step attempt and update internal maps.
+@@ -885,6 +933,10 @@ export async function executeWorkflow(params) {
              workflowName: workflowRun.workflowName,
              createdAt: workflowRun.createdAt,
              startedAt: workflowRun.startedAt,
@@ -132,7 +198,7 @@ index 32ce29913c66439e0ddd3808bc3b3afbdfb8c0e5..cc595556ff082ebd734be25e79b3a514
          });
          // execute workflow
          const output = await workflowFn({
-@@ -893,6 +919,9 @@ export async function executeWorkflow(params) {
+@@ -893,6 +945,9 @@ export async function executeWorkflow(params) {
              version: workflowVersion,
              run,
          });
@@ -189,76 +255,10 @@ index 8f95a1635cd0cfd938d53e2171addaaaab8eefab..e9ea1773ea8a982de41c3a9dfaf5eb52
              this.heartbeatTimer = null;
          }
      }
-+}
+ }
 +function isLeaseExtensionLost(error) {
 +    return error instanceof Error && error.message === "Failed to extend lease for workflow run";
- }
++}
  /**
   * Sleep for a given duration.
   * @param ms - Milliseconds to sleep
-diff --git a/dist/postgres/backend.js b/dist/postgres/backend.js
-index fdd92c63d9edab4d7ef70a03a3f7452ef6d04990..ac6ae01e1ee1665a16538c7c9dd6b44a6b5261e0 100644
---- a/dist/postgres/backend.js
-+++ b/dist/postgres/backend.js
-@@ -319,6 +319,7 @@ export class BackendPostgres {
-         // 2. find an available workflow run to claim
-         // 3. claim the workflow run
-         const workflowRunsTable = this.workflowRunsTable();
-+        const stepAttemptsTable = this.stepAttemptsTable();
-         const [claimed] = await this.pg `
-       WITH expired AS (
-         UPDATE ${workflowRunsTable}
-@@ -336,16 +337,24 @@ export class BackendPostgres {
-         RETURNING "id"
-       ),
-       candidate AS (
--        SELECT "id"
--        FROM ${workflowRunsTable}
--        WHERE "namespace_id" = ${this.namespaceId}
--          AND "status" IN ('pending', 'running', 'sleeping')
--          AND "available_at" <= NOW()
--          AND ("deadline_at" IS NULL OR "deadline_at" > NOW())
-+        SELECT wr."id"
-+        FROM ${workflowRunsTable} AS wr
-+        WHERE wr."namespace_id" = ${this.namespaceId}
-+          AND wr."status" IN ('pending', 'running', 'sleeping')
-+          AND wr."available_at" <= NOW()
-+          AND (wr."deadline_at" IS NULL OR wr."deadline_at" > NOW())
-+          AND NOT EXISTS (
-+            SELECT 1
-+            FROM ${stepAttemptsTable} AS step
-+            WHERE step."namespace_id" = wr."namespace_id"
-+              AND step."workflow_run_id" = wr."id"
-+              AND step."kind" = 'function'
-+              AND step."status" = 'running'
-+          )
-         ORDER BY
--          CASE WHEN "status" = 'pending' THEN 0 ELSE 1 END,
--          "available_at",
--          "created_at"
-+          CASE WHEN wr."status" = 'pending' THEN 0 ELSE 1 END,
-+          wr."available_at",
-+          wr."created_at"
-         LIMIT 1
-         FOR UPDATE SKIP LOCKED
-       )
-diff --git a/dist/sqlite/backend.js b/dist/sqlite/backend.js
-index 9bf3971559e4d4a569a9a422d5a432c480f25a6d..c14ce437165cb4b93f7c9e1f29bbaaf15297b970 100644
---- a/dist/sqlite/backend.js
-+++ b/dist/sqlite/backend.js
-@@ -254,7 +254,15 @@ export class BackendSqlite {
-           AND "status" IN ('pending', 'running', 'sleeping')
-           AND "available_at" <= ?
-           AND ("deadline_at" IS NULL OR "deadline_at" > ?)
-+          AND NOT EXISTS (
-+            SELECT 1
-+            FROM "step_attempts" step
-+            WHERE step."namespace_id" = "workflow_runs"."namespace_id"
-+              AND step."workflow_run_id" = "workflow_runs"."id"
-+              AND step."kind" = 'function'
-+              AND step."status" = 'running'
-+          )
-         ORDER BY
-           CASE WHEN "status" = 'pending' THEN 0 ELSE 1 END,
-           "available_at",
-           "created_at"

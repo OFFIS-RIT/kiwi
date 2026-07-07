@@ -3,6 +3,7 @@ import { updateDescriptionsSpec } from "./update-descriptions-spec";
 import { processDescriptionsGroupsSpec } from "./process-descriptions-group-spec";
 import { chunkItems } from "../lib/chunk";
 import { DESCRIPTION_BATCH_SIZE } from "../lib/description-workflow";
+import { settledStepFailures, toWorkflowError } from "../lib/workflow-errors";
 
 /**
  * Spawns update-descriptions sub-workflows for a slice of entity/relationship IDs.
@@ -30,5 +31,9 @@ export const processDescriptionsGroups = defineWorkflow(processDescriptionsGroup
         })
     );
 
-    await Promise.all([...entityPromises, ...relationshipPromises]);
+    const results = await Promise.allSettled([...entityPromises, ...relationshipPromises]);
+    const [firstFailure] = settledStepFailures(results);
+    if (firstFailure !== undefined) {
+        throw toWorkflowError(firstFailure);
+    }
 });

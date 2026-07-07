@@ -4,16 +4,14 @@ import { defineWorkflow } from "openworkflow";
 import { graphTable } from "@kiwi/db/tables/graph";
 import { deleteFileSpec } from "./delete-file-spec";
 import { deleteGraphFilesSpec } from "./delete-graph-files-spec";
+import {
+    isTerminalWorkflowFailure,
+    isWorkflowControlSignal,
+    settledStepFailures,
+    toWorkflowError,
+} from "../lib/workflow-errors";
 
 const NO_RETRY = { maximumAttempts: 1 } as const;
-
-function workflowError(error: unknown) {
-    if (error instanceof Error) {
-        return new Error(error.message, { cause: error });
-    }
-
-    return new Error("Workflow failed", { cause: error });
-}
 
 async function finalizeProjectStatus(graphId: string) {
     await db.transaction(async (tx) => {
@@ -49,10 +47,10 @@ export const deleteGraphFiles = defineWorkflow(deleteGraphFilesSpec, async ({ in
                 })
             )
         );
-        const failedDeleteCount = deleteResults.filter((result) => result.status === "rejected").length;
+        const deleteFailures = settledStepFailures(deleteResults);
 
-        if (failedDeleteCount > 0) {
-            throw new Error(`Failed to delete ${failedDeleteCount} file(s)`);
+        if (deleteFailures.length > 0) {
+            throw new Error(`Failed to delete ${deleteFailures.length} file(s)`);
         }
 
         await step.run({ name: "finalize-project-status" }, async () => {
@@ -63,12 +61,16 @@ export const deleteGraphFiles = defineWorkflow(deleteGraphFilesSpec, async ({ in
             fileIds: input.fileIds,
         };
     } catch (error) {
-        if (run.retryTerminal) {
+        if (isWorkflowControlSignal(error)) {
+            throw error;
+        }
+
+        if (isTerminalWorkflowFailure(error, run)) {
             await step.run({ name: "mark-project-ready", retryPolicy: NO_RETRY }, async () => {
                 await finalizeProjectStatus(input.graphId);
             });
         }
 
-        throw workflowError(error);
+        throw toWorkflowError(error);
     }
 });
