@@ -1048,7 +1048,10 @@ describe("PDFLoader", () => {
 
         expect(text).toBe(":::PAGE-1:::\n\n# OCR fallback\nReadable page text");
         expect(generateTextMock).toHaveBeenCalledTimes(1);
-        expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({ system: transcribePrompt });
+        expect(generateTextMock.mock.calls[0]?.[0]).toMatchObject({
+            system: transcribePrompt,
+            providerOptions: { openaiAPI: { repetition_penalty: 1.05 } },
+        });
         expect(putNamedFileMock).not.toHaveBeenCalled();
     });
 

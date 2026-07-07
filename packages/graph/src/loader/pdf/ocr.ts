@@ -24,6 +24,8 @@ const ROTATED_OCR_RETRY_SCALES = [2] as const;
 const IMAGE_ONLY_OCR_RETRY_SCALES = [1.5, 0.5, 0.35] as const;
 const OCR_RETRY_ROTATION: PDFOCRRotation = 90;
 const OCR_TRANSCRIBE_TIMEOUT_MS = 600_000;
+const OCR_REPETITION_PENALTY = 1.05;
+const OCR_PROVIDER_OPTIONS = { openaiAPI: { repetition_penalty: OCR_REPETITION_PENALTY } } as const;
 
 export async function extractFullOCRTextFromPDF(
     content: ArrayBuffer,
@@ -280,6 +282,7 @@ export async function defaultTranscribePage(image: Uint8Array, model: LanguageMo
             system: transcribePrompt,
             temperature: 0.3,
             timeout: OCR_TRANSCRIBE_TIMEOUT_MS,
+            providerOptions: OCR_PROVIDER_OPTIONS,
             messages: [
                 {
                     role: "user",
