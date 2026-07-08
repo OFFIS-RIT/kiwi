@@ -515,6 +515,10 @@ function ProjectChatSession({
 
     const { messages, sendMessage, status, addToolOutput, stop } = useChat<ChatUIMessage>({
         chat: entry.chat,
+        // Long responses with many tool steps stream faster than the large
+        // message tree can re-render; unthrottled store updates then cascade
+        // into React's "Maximum update depth exceeded" and abort the stream.
+        experimental_throttle: 50,
     });
 
     const isAssistantTyping = status === "submitted" || status === "streaming";

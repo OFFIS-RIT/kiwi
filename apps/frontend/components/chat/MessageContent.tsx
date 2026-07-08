@@ -92,7 +92,10 @@ type ThinkingItem =
     | { kind: "interim-text"; key: string; markdown: string }
     | { kind: "tool-run"; key: string; tools: ToolPart[] };
 
-export function MessageContent({
+// Memoized so streaming chunks only re-render the streaming message: the AI
+// SDK clones just the message it appends to, so all other messages keep stable
+// part identities across store updates.
+export const MessageContent = React.memo(function MessageContent({
     parts,
     projectId,
     isStreaming = false,
@@ -512,4 +515,4 @@ export function MessageContent({
             )}
         </div>
     );
-}
+});
