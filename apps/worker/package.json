@@ -19,7 +19,7 @@
         "@kiwi/files": "workspace:*",
         "@kiwi/graph": "workspace:*",
         "@kiwi/logger": "workspace:*",
-        "@openworkflow/cli": "^0.4.4",
+        "@openworkflow/cli": "^0.4.5",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "drizzle-orm": "catalog:",
